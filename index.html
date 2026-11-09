@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>4 Achilles Ave – Raised Cottage 3D</title>
+<title>No Street Ave – Raised Cottage 3D</title>
 <style>
   :root { --panel: rgba(24,28,34,0.90); --fg:#e8eaed; --muted:#9aa3ad; --accent:#5aa9ff; }
   html,body{margin:0;height:100%;overflow:hidden;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#cfe3f5;color:var(--fg)}
@@ -35,7 +35,7 @@
 <body>
 <canvas id="c"></canvas>
 <div id="ui">
-  <h1>4 Achilles Ave, North Wollongong</h1>
+  <h1>No Street, Suburb</h1>
   <div class="sub">Existing cottage raised to FFL 5.80 AHD on 100×100 SHS columns.<br>Built from Wilson's Quality Drafting MZ11072024 (Iss. B), KB&amp;H 120528 S1–S12 and Aspire SW01–SW04. Dimensions approximate — written plan numbers govern.</div>
   <h2>Views</h2>
   <div class="row" id="views"></div>
@@ -420,7 +420,7 @@ for (const [k] of LAYERS) { G[k] = new THREE.Group(); G[k].name = k; scene.add(G
   const around = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), MAT.grass2);
   around.rotation.x = -Math.PI / 2; around.position.set(mm(5825), -0.015, -mm(10000)); around.receiveShadow = true;
   around.geometry.attributes.uv.array.forEach((v, i, a) => a[i] = v * 80); g.add(around);
-  // Achilles Avenue (south): footpath/verge, kerb, road
+  // Ach Avenue (south): footpath/verge, kerb, road
   mg.box(MAT.concrete, -60000, 80000, -9800, -8100, -0.01, 0.03);
   mg.box(MAT.kerb, -60000, 80000, -9950, -9800, -0.12, 0.15);
   mg.box(MAT.asphalt, -60000, 80000, -18500, -9950, -0.14, -0.10);
@@ -568,7 +568,7 @@ const ROOMS = [
   label(G.labels, 'BALCONY (new)', 2450, -1500, FFL + 2.7, 0.45);
   label(G.labels, 'CARPORT (2.6 × 5.5 space)', 1500, -4300, 2.3, 0.45);
   label(G.labels, 'DECK (new)', 5500, 12975, FFL + 2.5, 0.45);
-  label(G.labels, 'ACHILLES AVENUE', 5825, -14000, 0.8, 0.8, '#ffffff', 'rgba(40,40,40,0.75)');
+  label(G.labels, 'STREET AVENUE', 5825, -14000, 0.8, 0.8, '#ffffff', 'rgba(40,40,40,0.75)');
   label(G.labels, 'N ↑', 5825, 38000, 1.2, 0.8, '#ff5a3c', 'rgba(255,255,255,0.9)');
 }
 
