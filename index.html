@@ -53,7 +53,7 @@
       <option value="under">Start: under the floor</option>
     </select>
   </div>
-  <div class="sub"><b>WASD</b> move · <b>←/→</b> turn · <b>Q/E</b> look up/down · <b>Shift</b> run · <b>Space</b> jump · mouse look (click the view) · <b>F</b> or Esc exits.<br>Person 400 mm wide × 1.78 m; steps up to 300 mm. Doors open as you approach and close 10 s later.</div>
+  <div class="sub"><b>WASD</b> move · <b>←/→</b> turn · <b>Q/E</b> look up/down · <b>Shift</b> run · <b>Space</b> jump · <b>wheel</b> or <b>+/−</b> field of view · mouse look (click the view) · <b>F</b> or Esc exits.<br>Person 400 mm wide × 1.78 m; steps up to 300 mm. Doors open as you approach and close 10 s later.</div>
   <h2>Presets</h2>
   <div class="row" id="presets"></div>
   <h2>Layers</h2>
@@ -67,7 +67,7 @@
   <div class="opt"><span class="val" id="sunInfo" style="width:auto;text-align:left"></span></div>
 </div>
 <div id="compass"><span id="needle">N</span></div>
-<div id="hud"><div id="cross"></div><div id="walkHint"><b>WASD</b> move · <b>←/→</b> turn · <b>Q/E</b> look up/down · <b>Shift</b> run · <b>Space</b> jump · <b>F</b>/Esc exit · <span id="walkPos"></span></div></div>
+<div id="hud"><div id="cross"></div><div id="walkHint"><b>WASD</b> move · <b>←/→</b> turn · <b>Q/E</b> look up/down · <b>Shift</b> run · <b>Space</b> jump · <b>wheel</b> or <b>+/−</b> field of view · <b>F</b>/Esc exit · <span id="walkPos"></span></div></div>
 <div id="hint">Drag to orbit · right‑drag / shift‑drag to pan · wheel to zoom.<br>World axes: X east, north is towards −Z. Ground RL 2.90 = 0 m.</div>
 
 <script src="lib/three.min.js"></script>
@@ -1278,7 +1278,7 @@ function enterWalk() {
   controls.enabled = false; camTarget = null;
   const s = SPAWNS[spawnEl.value] || SPAWNS.entry;
   WALK.pos.set(mm(s[0]), s[2], -mm(s[1])); WALK.vy = 0; WALK.yaw = s[3]; WALK.pitch = 0; WALK.onGround = true; WALK.keys = {};
-  hud.style.display = 'block'; walkBtn.textContent = 'Exit walk mode (F)';
+  hud.style.display = 'block'; walkBtn.textContent = 'Exit walk mode (F)'; setWalkFov(walkFov);
   lockPointer();
 }
 let pointerLockBroken = false;
@@ -1292,6 +1292,7 @@ function exitWalk() {
   if (!WALK.on) return;
   WALK.on = false;
   if (document.pointerLockElement === canvas) document.exitPointerLock();
+  camera.fov = FOV_ORBIT; camera.updateProjectionMatrix();
   camera.rotation.set(0, 0, 0, 'XYZ'); camera.position.copy(WALK.saved.p); controls.target.copy(WALK.saved.t); camera.lookAt(controls.target);
   controls.enabled = true; hud.style.display = 'none'; walkBtn.textContent = 'Enter walk mode (F)';
 }
@@ -1315,6 +1316,11 @@ window.addEventListener('keydown', e => {
   if (WALK.on && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
 });
 window.addEventListener('keyup', e => { WALK.keys[e.code] = false; });
+// walk mode: wheel and +/- change the field of view (zoom); the orbit view keeps its own 45°
+const FOV_ORBIT = 45, FOV_MIN = 20, FOV_MAX = 110;
+let walkFov = FOV_ORBIT;
+function setWalkFov(f) { walkFov = THREE.MathUtils.clamp(f, FOV_MIN, FOV_MAX); camera.fov = walkFov; camera.updateProjectionMatrix(); }
+canvas.addEventListener('wheel', e => { if (!WALK.on) return; e.preventDefault(); setWalkFov(walkFov + Math.sign(e.deltaY) * 3); }, { passive: false });
 window.addEventListener('blur', () => { WALK.keys = {}; });
 
 /* horizontal blocking test: rays from several heights of the capsule along the move direction */
@@ -1343,6 +1349,7 @@ function walkUpdate(dt) {
   if (k.KeyW || k.ArrowUp) fz += 1; if (k.KeyS || k.ArrowDown) fz -= 1; if (k.KeyA) fx -= 1; if (k.KeyD) fx += 1;   // A/D strafe
   const TURN = 1.7, PITCH = 1.1;                                   // rad/s: arrow keys turn the head, Q/E tilt it
   if (k.ArrowLeft) WALK.yaw += TURN * dt; if (k.ArrowRight) WALK.yaw -= TURN * dt;
+  if (k.Equal || k.NumpadAdd) setWalkFov(walkFov - 40 * dt); if (k.Minus || k.NumpadSubtract) setWalkFov(walkFov + 40 * dt);   // + narrows (zooms in), − widens
   if (k.KeyQ) WALK.pitch = Math.min(1.45, WALK.pitch + PITCH * dt); if (k.KeyE) WALK.pitch = Math.max(-1.45, WALK.pitch - PITCH * dt);
   const s = Math.sin(WALK.yaw), c = Math.cos(WALK.yaw);
   let mx = -s * fz + c * fx, mz = -c * fz - s * fx;           // forward = (-sin, -cos), right = (cos, -sin)
