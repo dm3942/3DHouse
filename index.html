@@ -142,6 +142,13 @@ TEX.decking = canvasTex(512, 256, (g, w, h) => {
     if (Math.random() < 0.6) { const jx = Math.random() * w; g.fillStyle = 'rgba(0,0,0,0.6)'; g.fillRect(jx, y, 2, bh - 6); }
   }
 }, 2.0, 0.5);
+TEX.stair = canvasTex(256, 256, (g, w, h) => { // solid timber in the decking colour: grain only, no board gaps
+  g.fillStyle = 'rgb(150,96,58)'; g.fillRect(0, 0, w, h);
+  for (let k = 0; k < 220; k++) { g.fillStyle = `rgba(0,0,0,${Math.random() * 0.10})`; g.fillRect(Math.random() * w, Math.random() * h, 20 + Math.random() * 120, 1); }
+}, 1.0, 0.5);
+TEX.wallTile = canvasTex(128, 128, (g, w, h) => { // 200 × 200 white wall tile, black grout
+  g.fillStyle = '#f6f6f3'; g.fillRect(0, 0, w, h); g.fillStyle = '#141414'; g.fillRect(0, 0, w, 2); g.fillRect(0, 0, 2, h);
+}, 0.2, 0.2);
 TEX.floor = canvasTex(512, 256, (g, w, h) => {
   const n = 8, bh = h / n;
   for (let i = 0; i < n; i++) {
@@ -161,7 +168,7 @@ TEX.paling = canvasTex(256, 256, (g, w, h) => {
   for (let i = 0; i < n; i++) { const v = Math.random() * 24 - 12; g.fillStyle = `rgb(${138 + v},${120 + v},${96 + v})`; g.fillRect(i * bw, 0, bw - 3, h); g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(i * bw + bw - 3, 0, 3, h); }
   noise(g, w, h, 600, 0.1);
 }, 1, 1);
-TEX.slatsH = canvasTex(64, 256, (g, w, h) => { g.clearRect(0, 0, w, h); const n = 10, bh = h / n; for (let i = 0; i < n; i++) { const v = Math.random() * 20 - 10; g.fillStyle = `rgb(${120 + v},${88 + v},${58 + v})`; g.fillRect(0, i * bh, w, bh * 0.72); } }, 1, 0.9);
+TEX.slatsH = canvasTex(64, 256, (g, w, h) => { g.clearRect(0, 0, w, h); const n = 10, bh = h / n; for (let i = 0; i < n; i++) { const v = Math.random() * 20 - 10; g.fillStyle = `rgb(${238 + v * 0.4},${237 + v * 0.4},${232 + v * 0.4})`; g.fillRect(0, i * bh, w, bh * 0.72); } }, 1, 0.9);
 TEX.slatsV = canvasTex(256, 64, (g, w, h) => { g.clearRect(0, 0, w, h); const n = 10, bw = w / n; for (let i = 0; i < n; i++) { const v = Math.random() * 20 - 10; g.fillStyle = `rgb(${128 + v},${96 + v},${64 + v})`; g.fillRect(i * bw, 0, bw * 0.75, h); } }, 0.9, 1);
 TEX.grate = canvasTex(64, 64, (g, w, h) => { g.fillStyle = '#4d5257'; g.fillRect(0, 0, w, h); g.fillStyle = '#23272b'; for (let i = 0; i < 6; i++) g.fillRect(4, 4 + i * 10, w - 8, 5); }, 0.45, 0.45);
 TEX.fibro = canvasTex(256, 256, (g, w, h) => { g.fillStyle = '#d6d2c6'; g.fillRect(0, 0, w, h); noise(g, w, h, 1200, 0.06); g.fillStyle = 'rgba(0,0,0,0.25)'; g.fillRect(0, 0, w, 2); g.fillRect(0, h / 2, w, 2); g.fillRect(0, 0, 2, h); }, 1.2, 1.2);
@@ -182,6 +189,7 @@ const MAT = {
   trim: std({ color: 0x7c7e6d, roughness: 0.75 }),                       // olive-grey window architraves
   gutter: std({ color: 0x35373a, roughness: 0.5, metalness: 0.4 }),
   deck: std({ map: TEX.decking, roughness: 0.8 }),
+  stair: std({ map: TEX.stair, roughness: 0.8 }),            // solid timber stair treads, risers and stringers, decking colour
   floor: std({ map: TEX.floor, roughness: 0.7 }),
   subfloor: std({ color: 0x7a6a56, roughness: 0.95 }),
   grass: std({ map: TEX.grass, roughness: 1 }),
@@ -195,10 +203,14 @@ const MAT = {
   pad: std({ color: 0xb5b2aa, roughness: 0.95 }),
   timber: std({ color: 0x8c6a46, roughness: 0.85 }),
   rail: std({ color: 0x9a7a55, roughness: 0.8 }),
+  post: std({ color: 0xb9b7b0, roughness: 0.85 }),          // verandah / carport posts painted to match the cladding
+  railWhite: std({ color: 0xf4f3ee, roughness: 0.6 }),   // painted balustrades, handrails, slats and privacy screens
   glass: Object.assign(new THREE.MeshPhysicalMaterial({ color: 0xa8cde8, transparent: true, opacity: 0.30, roughness: 0.08, metalness: 0.0, side: THREE.DoubleSide, depthWrite: false }), { noShadow: true }), // sunlight passes through glazing
   oak: std({ map: TEX.floor, roughness: 0.55 }),
   tile: std({ color: 0xe8e4dc, roughness: 0.7 }),
-  cornice: std({ color: 0xffffff, roughness: 0.9, side: THREE.DoubleSide }),
+  wallTile: std({ map: TEX.wallTile, roughness: 0.35 }),      // wet-room wall tiling
+  architrave: std({ color: 0xffffff, roughness: 0.5, emissive: 0xffffff, emissiveIntensity: 0.25 }),   // painted door trim
+  cornice: std({ color: 0xffffff, roughness: 0.6, emissive: 0xffffff, emissiveIntensity: 0.3, side: THREE.DoubleSide }),
   chrome: std({ color: 0xe4e8ec, roughness: 0.3, metalness: 0.45 }),   // brushed chrome (no env map, so keep metalness moderate)
   crystal: new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, roughness: 0.05, metalness: 0.1 }),
   bulb: new THREE.MeshStandardMaterial({ color: 0xfff4d6, emissive: 0xffe9b0, emissiveIntensity: 1.6, roughness: 0.4 }),
@@ -225,6 +237,7 @@ const MAT = {
   car: std({ color: 0x8c1d1d, roughness: 0.3, metalness: 0.6 }),
   carGlass: std({ color: 0x223344, roughness: 0.1, metalness: 0.8 }),
   tyre: std({ color: 0x222222, roughness: 0.9 }),
+  collide: Object.assign(new THREE.MeshBasicMaterial({ visible: false }), { noShadow: true }),   // never drawn; walk-mode collision only
 };
 
 /* ------------------------------------------------------------------------
@@ -299,6 +312,11 @@ class Merger { // merges many small meshes per material into one draw call
     const g = boxGeo(mm(X1 - X0), y1 - y0, mm(Y1 - Y0));
     this.add(g, mat, new THREE.Vector3(mm((X0 + X1) / 2), (y0 + y1) / 2, -mm((Y0 + Y1) / 2)));
   }
+  boxR(mat, X0, X1, Y0, Y1, y0, y1) { // as box(), with the top/bottom texture turned 90° (boards run north–south)
+    const g = boxGeo(mm(X1 - X0), y1 - y0, mm(Y1 - Y0)), uv = g.attributes.uv;
+    for (let k = 8; k < 16; k++) uv.setXY(k, uv.getY(k), uv.getX(k));
+    this.add(g, mat, new THREE.Vector3(mm((X0 + X1) / 2), (y0 + y1) / 2, -mm((Y0 + Y1) / 2)));
+  }
   bar(mat, p0, p1, w, h) { // oriented box from p0 to p1 (world vectors), section w (horizontal) × h
     const dir = new THREE.Vector3().subVectors(p1, p0), len = dir.length(); dir.normalize();
     const g = boxGeo(w, h, len);
@@ -339,6 +357,23 @@ function face(group, mat, pts, uDir, flipUp = true) { // planar convex polygon w
    axis 'x': runs along X at Y = c.  axis 'y': runs along Y at X = c.
    a0,a1 = extent along axis (mm). t = thickness (mm). h0,h1 = height (m) at a0/a1 (raked walls).
    openings: {a,b (mm along axis), sill, head (mm above base), type:'window'|'door'|'slider'|'opening'} */
+function elevShape(s0, s1, ops, hS) { // wall elevation between s0..s1 (mm along the axis); hS(s) = height (m) at s
+  const X = s => mm(s - s0), shape = new THREE.Shape(), doors = []; shape.moveTo(0, 0);
+  for (const op of ops.slice().sort((p, q) => p.a - q.a)) {
+    if (op.b <= s0 || op.a >= s1) continue;
+    if (op.sill > 0) { // window: a hole
+      const x0 = X(op.a), x1 = X(op.b), z1 = mm(op.sill), z2 = mm(op.head);
+      const hole = new THREE.Path(); hole.moveTo(x0, z1); hole.lineTo(x1, z1); hole.lineTo(x1, z2); hole.lineTo(x0, z2); hole.closePath();
+      shape.holes.push(hole); continue;
+    }
+    // full-height opening: notched out of the outline, so no sill face is left lying in the floor plane (z-fighting)
+    const last = doors[doors.length - 1];
+    if (last && op.a <= last.b && op.head === last.head) last.b = op.b; else doors.push({ a: op.a, b: op.b, head: op.head });
+  }
+  for (const d of doors) { shape.lineTo(X(d.a), 0); shape.lineTo(X(d.a), mm(d.head)); shape.lineTo(X(d.b), mm(d.head)); shape.lineTo(X(d.b), 0); }
+  shape.lineTo(X(s1), 0); shape.lineTo(X(s1), hS(s1)); shape.lineTo(0, hS(s0)); shape.closePath();
+  return shape;
+}
 const WALL_UV = { // metre UVs; vertical end faces map (depth, height) so the boards carry round a corner at the same courses
   generateTopUV: (g, v, a, b, c) => [a, b, c].map(i => new THREE.Vector2(v[i * 3], v[i * 3 + 1])),
   generateSideWallUV: (g, v, a, b, c, d) => {
@@ -346,27 +381,12 @@ const WALL_UV = { // metre UVs; vertical end faces map (depth, height) so the bo
     return [a, b, c, d].map(i => upright ? new THREE.Vector2(v[i * 3 + 2], v[i * 3 + 1]) : new THREE.Vector2(v[i * 3], 1 - v[i * 3 + 2]));
   },
 };
+const BAND = 20, FLOOR_DEPTH = 0.30; // cladding skin (mm) over the floor framing, and the framing depth (m)
 function wall(group, glaze, o) {
   const { axis, a0, a1, c, t, h0, mat } = o, h1 = o.h1 ?? h0, z0 = o.z0 ?? FFL, ops = o.openings || [];
   // g0..g1 = extent actually built (trimmed so walls butt at corners instead of overlapping); heights still follow a0..a1
   const g0 = o.g0 ?? a0, g1 = o.g1 ?? a1, hS = s => h0 + (h1 - h0) * (s - a0) / (a1 - a0);
-  const profile = (s0, s1) => { // elevation between s0..s1 (mm along the axis)
-    const X = s => mm(s - s0), shape = new THREE.Shape(), doors = []; shape.moveTo(0, 0);
-    for (const op of ops.slice().sort((p, q) => p.a - q.a)) {
-      if (op.b <= s0 || op.a >= s1) continue;
-      if (op.sill > 0) { // window: a hole
-        const x0 = X(op.a), x1 = X(op.b), z1 = mm(op.sill), z2 = mm(op.head);
-        const hole = new THREE.Path(); hole.moveTo(x0, z1); hole.lineTo(x1, z1); hole.lineTo(x1, z2); hole.lineTo(x0, z2); hole.closePath();
-        shape.holes.push(hole); continue;
-      }
-      // full-height opening: notched out of the outline, so no sill face is left lying in the floor plane (z-fighting)
-      const last = doors[doors.length - 1];
-      if (last && op.a <= last.b && op.head === last.head) last.b = op.b; else doors.push({ a: op.a, b: op.b, head: op.head });
-    }
-    for (const d of doors) { shape.lineTo(X(d.a), 0); shape.lineTo(X(d.a), mm(d.head)); shape.lineTo(X(d.b), mm(d.head)); shape.lineTo(X(d.b), 0); }
-    shape.lineTo(X(s1), 0); shape.lineTo(X(s1), hS(s1)); shape.lineTo(0, hS(s0)); shape.closePath();
-    return shape;
-  };
+  const profile = (s0, s1) => elevShape(s0, s1, ops, hS);
   const extrude = (s0, s1, depth) => new THREE.ExtrudeGeometry(profile(s0, s1), { depth, bevelEnabled: false, UVGenerator: WALL_UV });
   const put = (m, s0, d0) => { // d0 = start of the extrusion relative to the wall centreline (m)
     if (axis === 'x') m.position.set(mm(s0), z0, -mm(c) + d0); else { m.rotation.y = Math.PI / 2; m.position.set(mm(c) + d0, z0, -mm(s0)); }
@@ -378,10 +398,15 @@ function wall(group, glaze, o) {
     const l0 = o.l0 ?? a0, l1 = o.l1 ?? a1;
     const lin = new THREE.Mesh(extrude(l0, l1, 0.012), MAT.lining); lin.receiveShadow = true;
     put(lin, l0, (o.outside ?? 1) > 0 ? -mm(t) / 2 - 0.012 : mm(t) / 2);
+    // the cladding continues down over the floor framing: same face plane, same board courses (UVs share the wall's origin)
+    const e0 = o.e0 ?? g0, e1 = o.e1 ?? g1, bs = new THREE.Shape(), bL = mm(e1 - e0), bd = FLOOR_DEPTH + 0.002;
+    bs.moveTo(0, -bd); bs.lineTo(bL, -bd); bs.lineTo(bL, 0); bs.lineTo(0, 0); bs.closePath();
+    const band = new THREE.Mesh(new THREE.ExtrudeGeometry(bs, { depth: mm(BAND), bevelEnabled: false, UVGenerator: WALL_UV }), mat);
+    band.castShadow = band.receiveShadow = true;
+    put(band, e0, (o.outside ?? 1) > 0 ? mm(t) / 2 - mm(BAND) : -mm(t) / 2);
   }
   // glazing / doors
   if (glaze) for (const op of ops) {
-    if (op.type === 'opening') continue;
     const mg = glaze.merger, tm = mm(t), fw = 0.05;
     const wdt = mm(op.b - op.a), hgt = mm(op.head - op.sill), zb = z0 + mm(op.sill), zt = z0 + mm(op.head);
     const ca = (op.a + op.b) / 2; // centre along axis
@@ -391,6 +416,21 @@ function wall(group, glaze, o) {
       const [bx, bz] = sec(sLen, dLen, true);
       mg.add(boxGeo(bx, yLen, bz), mat, P(sMid, yMid, dMid));
     };
+    // internal architraves: white 70 × 15 door trim to every doorway (both faces of internal walls, room side of external walls)
+    // windows get the same trim on the room side, as a full picture frame (jambs, head and a bottom rail under the sill)
+    if (op.sill === 0 || (op.type === 'window' && o.mat === MAT.weatherboard)) {
+      const aw = 0.07, at = 0.015, isExt = o.mat === MAT.weatherboard;
+      const lj = !ops.some(q => q !== op && q.b === op.a), rj = !ops.some(q => q !== op && q.a === op.b);   // paired cupboard doors share one frame
+      const hA = op.a - (lj ? 70 : 0), hB = op.b + (rj ? 70 : 0);
+      for (const side of isExt ? [-(o.outside ?? 1)] : [1, -1]) {
+        const d = side * (tm / 2 + (isExt ? 0.012 : 0) + at / 2);
+        if (lj) addBox(op.a - 35, aw, (zb + zt) / 2, hgt, d, at, MAT.architrave);
+        if (rj) addBox(op.b + 35, aw, (zb + zt) / 2, hgt, d, at, MAT.architrave);
+        addBox((hA + hB) / 2, mm(hB - hA), zt + aw / 2, aw, d, at, MAT.architrave);
+        if (op.sill > 0) addBox((hA + hB) / 2, mm(hB - hA), zb - aw / 2, aw, d, at, MAT.architrave);
+      }
+    }
+    if (op.type === 'opening') continue;
     // external architraves (olive-grey, 90 wide, 20 proud of the cladding)
     if (o.mat === MAT.weatherboard && op.type !== 'opening') {
       const aw = 0.09, out = (o.outside ?? 1) * (tm / 2 + 0.01); // +1: outer face is south (axis x) / east (axis y); -1 for north / west walls
@@ -609,10 +649,11 @@ function gableBuilding(g, mg, X0, X1, Y0, Y1, zE, zR, matWall, matRoof) {
 const FLOOR_BOT = FFL - 0.30;
 {
   const mg = new Merger(G.floor);
-  mg.box(MAT.floor, 0, 11650, 540, 12075, FLOOR_BOT, FFL);
-  mg.box(MAT.floor, 0, 3670, 0, 540, FLOOR_BOT, FFL);
-  mg.box(MAT.floor, 4920, 11650, 0, 540, FLOOR_BOT, FFL);
-  mg.box(MAT.floor, 4920, 8470, -1340, 0, FLOOR_BOT, FFL);
+  // floor framing stops BAND (20 mm) short of the external wall faces: the cladding carries on down over it (see wall())
+  mg.box(MAT.floor, BAND, 11650 - BAND, 540, 12075 - BAND, FLOOR_BOT, FFL);
+  mg.box(MAT.floor, BAND, 3670 - BAND, BAND, 540, FLOOR_BOT, FFL);
+  mg.box(MAT.floor, 4920 + BAND, 11650 - BAND, BAND, 540, FLOOR_BOT, FFL);
+  mg.box(MAT.floor, 4920 + BAND, 8470 - BAND, -1340 + BAND, BAND, FLOOR_BOT, FFL);
   mg.finish();
 }
 
@@ -662,6 +703,14 @@ for (const w of extWalls) {
   const outs = w.outside ?? 1, lc = w.axis === 'x' ? w.c + outs * (EXT / 2 + 6) : w.c - outs * (EXT / 2 + 6);
   [w.l0, w.l1] = clipEnds(w.axis, w.a0, w.a1, lc - 6, lc + 6);
   if (w.axis === 'x') [w.g0, w.g1] = clipEnds('x', w.a0, w.a1, w.c - EXT / 2, w.c + EXT / 2);
+  // floor-band skin: at an outside corner it runs on past the wall end to meet the N–S wall's skin
+  w.e0 = w.g0 ?? w.a0; w.e1 = w.g1 ?? w.a1;
+  if (w.axis === 'x') for (const p of extWalls) {
+    if (p.axis === 'x' || w.c - EXT / 2 < p.a0 - 1 || w.c + EXT / 2 > p.a1 + 1) continue;
+    const b0 = p.c - EXT / 2, b1 = p.c + EXT / 2, pOut = p.outside ?? 1;
+    if (w.g0 === b1 && w.a0 < b1 && pOut < 0) w.e0 = b0 + BAND;
+    if (w.g1 === b0 && w.a1 > b0 && pOut > 0) w.e1 = b1 - BAND;
+  }
 }
 for (const w of extWalls) wall(G.extWalls, glaze, Object.assign({ t: EXT, h0: WALL_H, mat: MAT.weatherboard }, w));
 
@@ -729,6 +778,35 @@ const WET = new Set(['BATH', 'WC', 'LAUNDRY']);
   // image textures (loaded over http; falls back to the procedural boards when opened from file://)
   const loadTex = (url, tileW, tileH, mat) => new THREE.TextureLoader().load(url, t => { t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / tileW, 1 / tileH); t.anisotropy = 8; t.encoding = THREE.sRGBEncoding; mat.map = t; mat.color.set(0xffffff); mat.needsUpdate = true; }, undefined, () => {});
   loadTex('textures/tile.png', 0.20, 0.20, MAT.tile); // Gabana Rubeli 200 × 200 tile
+  // wallpaper on all internal wall faces (internal walls + the lining of the external walls)
+  new THREE.TextureLoader().load('textures/wallpaper.png', t => {
+    t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1 / 1.6, 1 / 1.58);   // image = 3 × 3 pattern repeats, cropped to whole repeats t.anisotropy = 8; t.encoding = THREE.sRGBEncoding;
+    for (const m of [MAT.plaster, MAT.lining]) { m.map = t; m.color.set(0xffffff); m.needsUpdate = true; }
+  }, undefined, () => {});
+  // wet rooms: floor-to-ceiling 200 × 200 white tiles with black grout, as a 6 mm skin on every wall face of the room
+  const allWalls = extWalls.map(w => [w, EXT, true]).concat(intWalls.map(w => [w, INT, false]));
+  const tilePoly = (pts, h) => { // pts counter-clockwise in plan (room on the left of each edge)
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length], alongX = a[1] === b[1];
+      const lo = alongX ? Math.min(a[0], b[0]) : Math.min(a[1], b[1]), hi = alongX ? Math.max(a[0], b[0]) : Math.max(a[1], b[1]);
+      const e = alongX ? a[1] : a[0], inward = alongX ? Math.sign(b[0] - a[0]) : -Math.sign(b[1] - a[1]);
+      let ops = [], off = 1;
+      for (const [w, t, isExt] of allWalls) { // openings of the wall(s) this edge lies on
+        if ((w.axis === 'x') !== alongX || Math.abs(w.c - e) > t / 2 + 1 || w.a1 <= lo || w.a0 >= hi) continue;
+        if (isExt) off = 13; // clear of the 12 mm lining
+        for (const op of w.openings || []) if (op.b > lo && op.a < hi) ops.push(Object.assign({}, op, { a: Math.max(op.a, lo), b: Math.min(op.b, hi), head: Math.min(op.head, h * 1000 - 1) }));
+      }
+      const geo = new THREE.ExtrudeGeometry(elevShape(lo, hi, ops, () => h), { depth: 0.006, bevelEnabled: false, UVGenerator: WALL_UV });
+      const m = new THREE.Mesh(geo, MAT.wallTile); m.receiveShadow = true;
+      const c0 = inward > 0 ? e + off : e - off - 6; // near face of the skin (mm)
+      if (alongX) m.position.set(mm(lo), FFL, -mm(c0 + 6)); else { m.rotation.y = Math.PI / 2; m.position.set(mm(c0), FFL, -mm(lo)); }
+      G.intWalls.add(m);
+    }
+  };
+  for (const [n, X0, X1, Y0, Y1, h] of ROOMS) {
+    if (n === 'BATH') tilePoly([[6210, Y0], [X1, Y0], [X1, Y1], [X0, Y1], [X0, 4300], [6210, 4300]], h);   // around the linen cupboard
+    else if (WET.has(n)) tilePoly([[X0, Y0], [X1, Y0], [X1, Y1], [X0, Y1]], h);
+  }
   // door photos mapped onto the slab faces (shape UVs are in metres: repeat = crop fraction / size, offset = crop origin)
   const DW = 0.72, DH = 2.04;
   const doorTex = (url, mat, crop, pane) => new THREE.TextureLoader().load(url, t => {
@@ -855,7 +933,7 @@ const OH = 350; // eaves overhang
   face(g, MAT.roofUnder, [W(-300, -3300, sO - 0.1), W(5190, -3300, sO - 0.1), W(5190, 0, sI - 0.1), W(-300, 0, sI - 0.1)], UX, false);
   mg.box(MAT.fascia, -300, 5190, -3330, -3300, sO - 0.2, sO); mg.box(MAT.gutter, -390, 5280, -3450, -3330, sO - 0.15, sO - 0.02);
   mg.bar(MAT.fascia, W(-315, -3300, sO - 0.1), W(-315, 0, sI - 0.1), 0.03, 0.2); mg.bar(MAT.fascia, W(5205, -3300, sO - 0.1), W(5205, 0, sI - 0.1), 0.03, 0.2);
-  for (const x of [0, 2450, 4890]) { mg.box(MAT.timber, x - 60, x + 60, -3060, -2940, FFL, sO - 0.3); }
+  for (const x of [0, 2450, 4890]) { mg.box(MAT.post, x - 60, x + 60, -3060, -2940, FFL, sO - 0.3); }
   mg.box(MAT.timber, -300, 5190, -3060, -2940, sO - 0.42, sO - 0.12); // beam
   // north deck awning: falls away from the house
   const nI = 6.00, nO = 5.80;
@@ -863,7 +941,7 @@ const OH = 350; // eaves overhang
   face(g, MAT.roofUnder, [W(-300, 12075, nI - 0.1), W(11350, 12075, nI - 0.1), W(11350, 14175, nO - 0.1), W(-300, 14175, nO - 0.1)], UX, false);
   mg.box(MAT.fascia, -300, 11350, 14175, 14205, nO - 0.2, nO); mg.box(MAT.gutter, -390, 11440, 14205, 14325, nO - 0.15, nO - 0.02);
   mg.bar(MAT.fascia, W(-315, 12075, nI - 0.1), W(-315, 14175, nO - 0.1), 0.03, 0.2); mg.bar(MAT.fascia, W(11365, 12075, nI - 0.1), W(11365, 14175, nO - 0.1), 0.03, 0.2);
-  for (const x of [0, 2761, 5455, 8015, 11045]) mg.box(MAT.timber, x - 60, x + 60, 13755, 13875, FFL, nO - 0.25);
+  for (const x of [0, 2761, 5455, 8015, 11045]) mg.box(MAT.post, x - 60, x + 60, 13755, 13875, FFL, nO - 0.25);
   mg.box(MAT.timber, -300, 11350, 13755, 13875, nO - 0.37, nO - 0.07);
   mg.finish();
 }
@@ -883,7 +961,7 @@ const OH = 350; // eaves overhang
   mg.box(MAT.timber, X0 + 50, X0 + 170, Y0, Y1, zE - 0.33, zE - 0.08); mg.box(MAT.timber, X1 - 170, X1 - 50, Y0, Y1, zE - 0.33, zE - 0.08);
   mg.box(MAT.timber, Xc - 60, Xc + 60, Y0, Y1, zR - 0.35, zR - 0.08);
   mg.box(MAT.gutter, X0 - 120, X0 + 10, Y0, Y1, zE - 0.22, zE - 0.1); mg.box(MAT.gutter, X1 - 10, X1 + 120, Y0, Y1, zE - 0.22, zE - 0.1);
-  for (const [x, y] of [[0, -5500], [3200, -5500], [3200, -3150]]) mg.box(MAT.timber, x - 62, x + 62, y - 62, y + 62, 0.05, zE - 0.33);
+  for (const [x, y] of [[0, -5500], [3200, -5500], [3200, -3150]]) mg.box(MAT.post, x - 62, x + 62, y - 62, y + 62, 0.05, zE - 0.33);
   mg.box(MAT.timber, X0 + 50, X1 - 50, Y0 + 280, Y0 + 400, zE - 0.33, zE - 0.13); // front beam
   mg.finish();
 }
@@ -891,14 +969,21 @@ const OH = 350; // eaves overhang
 /* =========================================================================
    BALCONY, NORTH DECK, STAIRS, BALUSTRADES
    ========================================================================= */
+const SLAT_W = 80, SLAT_T = 20; // balustrade / screen slats (mm): 80 wide, 20 thick
+function slatRun(mg, X0, Y0, X1, Y1, z0, z1, gap, inset = 45) { // vertical slats between two plan points (axis-aligned runs), centred between the end posts
+  const L = Math.hypot(X1 - X0, Y1 - Y0), dx = (X1 - X0) / L, dy = (Y1 - Y0) / L, pitch = SLAT_W + gap;
+  const k = Math.floor((L - 2 * inset + gap) / pitch), start = (L - (k * pitch - gap)) / 2;
+  const hx = (Math.abs(dx) * SLAT_W + Math.abs(dy) * SLAT_T) / 2, hy = (Math.abs(dy) * SLAT_W + Math.abs(dx) * SLAT_T) / 2;
+  for (let i = 0; i < k; i++) { const d = start + SLAT_W / 2 + i * pitch, x = X0 + dx * d, y = Y0 + dy * d; mg.box(MAT.railWhite, x - hx, x + hx, y - hy, y + hy, z0, z1); }
+}
 function balustrade(mg, X0, Y0, X1, Y1, zBase, h = 1.0) {
   const L = Math.hypot(X1 - X0, Y1 - Y0), n = Math.max(1, Math.ceil(L / 1500));
   const dx = (X1 - X0) / L, dy = (Y1 - Y0) / L;
-  for (let i = 0; i <= n; i++) { const f = i / n, x = X0 + f * (X1 - X0), y = Y0 + f * (Y1 - Y0); mg.box(MAT.rail, x - 45, x + 45, y - 45, y + 45, zBase, zBase + h + 0.02); }
-  mg.bar(MAT.rail, W(X0, Y0, zBase + h - 0.02), W(X1, Y1, zBase + h - 0.02), 0.09, 0.045);
-  mg.bar(MAT.rail, W(X0, Y0, zBase + 0.10), W(X1, Y1, zBase + 0.10), 0.045, 0.045);
-  const nb = Math.floor(L / 125);
-  for (let i = 1; i < nb; i++) { const d = i * 125, x = X0 + dx * d, y = Y0 + dy * d; mg.box(MAT.rail, x - 12, x + 12, y - 12, y + 12, zBase + 0.12, zBase + h - 0.04); }
+  for (let i = 0; i <= n; i++) { const f = i / n, x = X0 + f * (X1 - X0), y = Y0 + f * (Y1 - Y0); mg.box(MAT.railWhite, x - 45, x + 45, y - 45, y + 45, zBase, zBase + h + 0.02); }
+  mg.bar(MAT.railWhite, W(X0, Y0, zBase + h - 0.02), W(X1, Y1, zBase + h - 0.02), 0.09, 0.045);
+  mg.bar(MAT.railWhite, W(X0, Y0, zBase + 0.10), W(X1, Y1, zBase + 0.10), 0.045, 0.045);
+  slatRun(mg, X0, Y0, X1, Y1, zBase + 0.12, zBase + h - 0.04, 40);
+  mg.bar(MAT.collide, W(X0, Y0, zBase + h / 2), W(X1, Y1, zBase + h / 2), 0.01, h);   // unseen panel so the walker can't slip between slats
 }
 /* straight flight of stairs descending in direction dir (+1 east / -1 west) from X=Xs, between Ya..Yb.
    Xs/Ya/Yb/going in mm, zTop/riser in metres. */
@@ -908,16 +993,20 @@ function flight(mg, dir, Xs, Ya, Yb, zTop, n, riser, going, rails = [true, true]
     const zt = zTop - i * riser, xa = Xs + dir * (i - 1) * going, xb = xa + dir * going;
     // tread; the last one stops at the landing edge (no coplanar overlap) and is omitted when it would lie in the ground plane
     const nose = i === n ? 0 : 25, t0 = dir > 0 ? xa - 25 : xb - nose, t1 = dir > 0 ? xb + nose : xa + 25;
-    if (zt > 0.01) mg.box(MAT.deck, t0, t1, Ya + 30, Yb - 30, zt - 0.04, zt);
-    mg.box(MAT.rail, xa - 10, xa + 10, Ya + 30, Yb - 30, zt, zt + riser - 0.04);                               // riser board
+    if (zt > 0.01) mg.box(MAT.stair, t0, t1, Ya + 30, Yb - 30, zt - 0.04, zt);
   }
-  for (const y of [Ya + 25, Yb - 25]) mg.bar(MAT.rail, W(Xs, y, zTop - 0.30), W(Xe, y, zTop - n * riser - 0.30), 0.045, 0.28); // stringers
+  for (const y of [Ya + 25, Yb - 25]) mg.bar(MAT.stair, W(Xs, y, zTop - 0.20), W(Xe, y, zTop - n * riser - 0.20), 0.045, 0.28); // stringers
   rails.forEach((on, k) => {
     if (!on) return; const y = k === 0 ? Ya + 45 : Yb - 45;
-    mg.box(MAT.rail, Xs - 45, Xs + 45, y - 45, y + 45, zTop, zTop + 1.0);
-    mg.box(MAT.rail, Xe - 45, Xe + 45, y - 45, y + 45, zTop - n * riser, zTop - n * riser + 1.0);
-    mg.bar(MAT.rail, W(Xs, y, zTop + 0.98), W(Xe, y, zTop - n * riser + 0.98), 0.07, 0.045);
-    for (let i = 1; i <= n; i++) { const zt = zTop - i * riser, x = Xs + dir * ((i - 1) * going + going / 2); mg.box(MAT.rail, x - 12, x + 12, y - 12, y + 12, zt, zt + 0.95 + riser / 2); }
+    mg.box(MAT.railWhite, Xs - 45, Xs + 45, y - 45, y + 45, zTop, zTop + 1.0);
+    mg.box(MAT.railWhite, Xe - 45, Xe + 45, y - 45, y + 45, zTop - n * riser, zTop - n * riser + 1.0);
+    mg.bar(MAT.railWhite, W(Xs, y, zTop + 0.98), W(Xe, y, zTop - n * riser + 0.98), 0.07, 0.045);
+    mg.bar(MAT.railWhite, W(Xs, y, zTop + 0.10), W(Xe, y, zTop - n * riser + 0.10), 0.045, 0.045);   // raking bottom rail
+    const run = n * going, pitch = SLAT_W + 40, ns = Math.floor((run - 90 + 40) / pitch), start = (run - (ns * pitch - 40)) / 2;
+    for (let i = 0; i < ns; i++) { // 80 mm slats at 40 mm gaps between the raking rails
+      const d = start + SLAT_W / 2 + i * pitch, x = Xs + dir * d, zl = zTop - d / going * riser;
+      mg.box(MAT.railWhite, x - SLAT_W / 2, x + SLAT_W / 2, y - SLAT_T / 2, y + SLAT_T / 2, zl + 0.10, zl + 0.945);
+    }
   });
 }
 {
@@ -926,32 +1015,29 @@ function flight(mg, dir, Xs, Ya, Yb, zTop, n, riser, going, rails = [true, true]
   // south balcony (3000 × 4890) + decking into the entry nook
   mg.box(MAT.deck, 0, 4890, -3000, 0, DECK_BOT, FFL);
   mg.box(MAT.deck, 3670, 4920, 0, 540, DECK_BOT, FFL - 0.005);
-  mg.box(MAT.rail, -3, 4893, -3010, -2970, DECK_BOT - 0.05, FFL - 0.02); // edge board 10 mm proud of the deck face
   balustrade(mg, 0, -3000, 4890, -3000, FFL);
   balustrade(mg, 4890, -1870, 4890, -1340, FFL);   // (west edge carries the 1800 privacy screen instead of a balustrade)
   // dog-leg stair: upper flight east from balcony to landing, lower flight back west to ground
   const LAND_Z = FFL - 5 * 0.18;
   flight(mg, +1, 4890, -3000, -1870, FFL, 5, 0.18, 274, [true, true]);
-  mg.box(MAT.deck, 6260, 7300, -4190, -1870, LAND_Z - 0.25, LAND_Z);
+  mg.boxR(MAT.deck, 6260, 7300, -4190, -1870, LAND_Z - 0.25, LAND_Z);
   balustrade(mg, 6260, -1870, 7300, -1870, LAND_Z); balustrade(mg, 7300, -1870, 7300, -4190, LAND_Z); balustrade(mg, 7300, -4190, 6260, -4190, LAND_Z);
   for (const [x, y] of [[6300, -4150], [7260, -4150], [7260, -1910], [6300, -1910]]) mg.box(MAT.galv, x - 50, x + 50, y - 50, y + 50, 0.1, LAND_Z - 0.25);
   mg.box(MAT.steel, 6260, 7300, -1950, -1870, LAND_Z - 0.45, LAND_Z - 0.25); mg.box(MAT.steel, 6260, 7300, -4190, -4110, LAND_Z - 0.45, LAND_Z - 0.25);
   const lowN = 11, lowR = LAND_Z / lowN;
   flight(mg, -1, 6260, -4190, -3060, LAND_Z, lowN, lowR, 270, [true, true]);
-  balustrade(mg, 4890, -3000, 6260, -3000, FFL, 1.0); // guard along south edge of upper flight void
   // north deck (1800 deep, 11050 long) + landing + straight stair descending west
   mg.box(MAT.deck, 0, 11050, 12075, 13875, DECK_BOT, FFL);
   mg.box(MAT.deck, 9890, 11050, 13875, 15050, DECK_BOT, FFL);
-  mg.box(MAT.rail, -3, 9890, 13845, 13885, DECK_BOT - 0.05, FFL - 0.02);   // edge board 10 mm proud of the deck face
   balustrade(mg, 0, 13875, 9890, 13875, FFL);
   balustrade(mg, 0, 12075, 0, 13875, FFL);
   balustrade(mg, 9890, 15050, 11050, 15050, FFL);
   // straight stair descending west with a midway landing: 8 risers, 1000 landing, 8 risers (181 risers / 250 goings)
   const nR = FFL / 16, MID_Z = FFL - 8 * nR;
   flight(mg, -1, 9890, 13875, 15050, FFL, 8, nR, 250, [true, true]);
-  mg.box(MAT.deck, 6890, 7640, 13875, 15050, MID_Z - 0.25, MID_Z);                 // landing (with the 8th tread = 1000 deep)
-  balustrade(mg, 6890, 15050, 7640, 15050, MID_Z); balustrade(mg, 6890, 13875, 7640, 13875, MID_Z);
-  for (const [x, y] of [[6940, 13925], [7590, 13925], [6940, 15000], [7590, 15000]]) {
+  mg.boxR(MAT.deck, 6890, 7890, 13875, 15050, MID_Z - 0.25, MID_Z);                // landing, 1000 long, meeting the foot of the upper flight
+  balustrade(mg, 6890, 15050, 7890, 15050, MID_Z); balustrade(mg, 6890, 13875, 7890, 13875, MID_Z);
+  for (const [x, y] of [[6940, 13925], [7840, 13925], [6940, 15000], [7840, 15000]]) {
     mg.box(MAT.galv, x - 50, x + 50, y - 50, y + 50, 0.1, MID_Z - 0.25);              // landing posts
     mg.cyl(MAT.pad, W(x, y, 0), W(x, y, 0.1), 0.225, 16);                              // 450Ø piers
   }
@@ -963,9 +1049,10 @@ function flight(mg, dir, Xs, Ya, Yb, zTop, n, riser, going, rails = [true, true]
 { // privacy screens 1800 high to the eastern sides of the new decks
   const mg = new Merger(G.screens);
   const screen = (X0, Y0, X1, Y1, z) => {
-    mg.bar(MAT.slatsV, W(X0, Y0, z + 0.9), W(X1, Y1, z + 0.9), 0.02, 1.8);
-    mg.bar(MAT.rail, W(X0, Y0, z + 1.83), W(X1, Y1, z + 1.83), 0.07, 0.06); mg.bar(MAT.rail, W(X0, Y0, z + 0.03), W(X1, Y1, z + 0.03), 0.07, 0.06);
-    for (const [x, y] of [[X0, Y0], [X1, Y1]]) mg.box(MAT.rail, x - 45, x + 45, y - 45, y + 45, z, z + 1.86);
+    slatRun(mg, X0, Y0, X1, Y1, z + 0.06, z + 1.80, 20);                       // same 80 mm slats as the balustrades, 20 mm gaps
+    mg.bar(MAT.collide, W(X0, Y0, z + 0.9), W(X1, Y1, z + 0.9), 0.01, 1.8);
+    mg.bar(MAT.railWhite, W(X0, Y0, z + 1.83), W(X1, Y1, z + 1.83), 0.07, 0.06); mg.bar(MAT.railWhite, W(X0, Y0, z + 0.03), W(X1, Y1, z + 0.03), 0.07, 0.06);
+    for (const [x, y] of [[X0, Y0], [X1, Y1]]) mg.box(MAT.railWhite, x - 45, x + 45, y - 45, y + 45, z, z + 1.86);
   };
   screen(11050, 12075, 11050, 15050, FFL);           // east end of north deck + landing
   screen(0, -3000, 0, 0, FFL);                       // west side of the front balcony (neighbour side)
@@ -1023,7 +1110,7 @@ const BRACES = [ // [Y0,X0,Y1,X1]
   const scr = (X0, Y0, X1, Y1) => {
     mg.bar(MAT.slatsH, W(X0, Y0, (z0 + z1) / 2), W(X1, Y1, (z0 + z1) / 2), 0.02, z1 - z0);
     const L = Math.hypot(X1 - X0, Y1 - Y0), ex = (X1 - X0) / L * 3, ey = (Y1 - Y0) / L * 3;   // rail 3 mm longer than the slats: end caps not coplanar
-    mg.bar(MAT.rail, W(X0 - ex, Y0 - ey, z0 + 0.03), W(X1 + ex, Y1 + ey, z0 + 0.03), 0.045, 0.06);   // bottom rail
+    mg.bar(MAT.railWhite, W(X0 - ex, Y0 - ey, z0 + 0.03), W(X1 + ex, Y1 + ey, z0 + 0.03), 0.045, 0.06);   // bottom rail
   };
   scr(4920, -1420, 8470, -1420);   // bedroom projection, street side
   scr(4840, -1420, 4840, -80);  scr(8550, -1420, 8550, -80);   // projection returns
