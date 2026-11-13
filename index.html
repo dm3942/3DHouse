@@ -953,7 +953,28 @@ const WET = new Set(['BATH', 'WC', 'LAUNDRY']);
   label(G.labels, 'CARPORT (2.6 × 5.5 space)', 1500, -4300, 2.3, 0.45);
   label(G.labels, 'DECK (new)', 5500, 12975, FFL + 2.5, 0.45);
   label(G.labels, 'STREET', 5825, -14000, 0.8, 0.8, '#ffffff', 'rgba(40,40,40,0.75)');
-  label(G.labels, 'N ↑', 5825, 38000, 1.2, 0.8, '#ff5a3c', 'rgba(255,255,255,0.9)');
+  { // north point: a compass rose lying flat on the ground beyond the rear boundary. It is fixed to the model, so it always points true north (−Z).
+    const rose = canvasTex(512, 512, (g, w, h) => {
+      const c = w / 2, R = 236; g.clearRect(0, 0, w, h);
+      g.fillStyle = 'rgba(255,255,255,0.93)'; g.beginPath(); g.arc(c, c, R, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#1e2328'; g.lineWidth = 6; g.beginPath(); g.arc(c, c, R - 3, 0, Math.PI * 2); g.stroke(); g.lineWidth = 2; g.beginPath(); g.arc(c, c, R - 46, 0, Math.PI * 2); g.stroke();
+      for (let i = 0; i < 72; i++) { const a = i / 72 * Math.PI * 2, r0 = R - (i % 9 === 0 ? 46 : i % 3 === 0 ? 30 : 20); g.lineWidth = i % 9 === 0 ? 4 : 2; g.beginPath(); g.moveTo(c + Math.sin(a) * r0, c - Math.cos(a) * r0); g.lineTo(c + Math.sin(a) * (R - 8), c - Math.cos(a) * (R - 8)); g.stroke(); }   // degree ring, every 5°
+      const point = (a, len, wid, light, dark) => { // a two-tone diamond point at bearing a
+        const tx = c + Math.sin(a) * len, ty = c - Math.cos(a) * len, px = Math.cos(a) * wid, py = Math.sin(a) * wid;
+        g.fillStyle = light; g.beginPath(); g.moveTo(c, c); g.lineTo(tx, ty); g.lineTo(c - px, c - py); g.closePath(); g.fill();
+        g.fillStyle = dark; g.beginPath(); g.moveTo(c, c); g.lineTo(tx, ty); g.lineTo(c + px, c + py); g.closePath(); g.fill();
+      };
+      for (let i = 0; i < 4; i++) point(Math.PI / 4 + i * Math.PI / 2, 105, 26, '#aab1b8', '#6f777f');                 // intercardinals
+      for (let i = 1; i < 4; i++) point(i * Math.PI / 2, 168, 34, '#e9ecef', '#2b3138');                                // E, S, W
+      point(0, 178, 36, '#ff7a5c', '#c8281e');                                                                           // north, in red
+      g.fillStyle = '#1e2328'; g.beginPath(); g.arc(c, c, 9, 0, Math.PI * 2); g.fill();
+      g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = 'bold 30px Segoe UI, Arial, sans-serif'; g.fillStyle = '#1e2328';
+      g.fillText('E', c + R - 24, c + 1); g.fillText('S', c, c + R - 23); g.fillText('W', c - R + 24, c + 1);
+      g.font = 'bold 44px Segoe UI, Arial, sans-serif'; g.fillStyle = '#c8281e'; g.fillText('N', c, c - R + 25);
+    }, 1, 1);
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), new THREE.MeshBasicMaterial({ map: rose, transparent: true, toneMapped: false, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    m.rotation.x = -Math.PI / 2; m.position.copy(W(5825, 38000, 0.02)); G.labels.add(m);   // texture "up" lies along −Z = north
+  }
 }
 
 /* =========================================================================
