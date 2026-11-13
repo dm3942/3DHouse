@@ -31,6 +31,9 @@
   #cross{position:absolute;left:50%;top:50%;width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;border:2px solid rgba(255,255,255,.9);box-shadow:0 0 3px rgba(0,0,0,.6)}
   #walkHint{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);background:var(--panel);color:var(--fg);font-size:12px;padding:6px 12px;border-radius:8px;white-space:nowrap}
   #walkHint b{color:var(--accent)}
+  #boatHint{display:none;position:absolute;left:50%;bottom:60px;transform:translateX(-50%);background:var(--panel);color:var(--fg);font-size:12px;padding:6px 12px;border-radius:8px;white-space:nowrap}
+  #boatHint b{color:var(--accent)}
+  #boatHint button{padding:2px 7px;font-size:11px}
   #compass span{position:absolute;transform-origin:center}
 </style>
 </head>
@@ -45,6 +48,7 @@
   <h2>Walk-through</h2>
   <div class="row">
     <button id="walkBtn">Enter walk mode (F)</button>
+    <button id="boatBtn">Drive the boat (B)</button>
     <select id="spawn">
       <option value="entry">Start: front entry (balcony)</option>
       <option value="deck">Start: north deck stair</option>
@@ -61,6 +65,7 @@
   <h2>Options</h2>
   <div class="opt"><input type="checkbox" id="xray"><label for="xray">X‑ray external walls</label></div>
   <div class="opt"><input type="checkbox" id="xraySite"><label for="xraySite">X‑ray site (ground, street, driveway, fences)</label></div>
+  <div class="opt"><button id="floodFun">Flood waves, boat &amp; sharks: on</button></div>
   <div class="opt"><input type="checkbox" id="cutOn"><label for="cutOn" style="white-space:nowrap">Section cut at</label><input type="range" id="cut" min="0.3" max="9" step="0.05" value="4.2"><span class="val" id="cutVal">4.20 m</span></div>
   <div class="opt"><input type="checkbox" id="shadows" checked><label for="shadows">Shadows</label></div>
   <div class="opt"><label style="white-space:nowrap">Month (Jan → Dec)</label><input type="range" id="sun" min="0" max="1" step="0.002" value="0.45"><span class="val" id="seasonVal"></span></div>
@@ -69,6 +74,7 @@
 </div>
 <div id="compass"><span id="needle">N</span></div>
 <div id="hud"><div id="cross"></div><div id="walkHint"><b>WASD</b> move · <b>←/→</b> turn · <b>Q/E</b> look up/down · <b>Shift</b> run · <b>Space</b> jump · <b>wheel</b> or <b>+/−</b> field of view · <b>F</b>/Esc exit · <span id="walkPos"></span></div></div>
+<div id="boatHint"><b>W/S</b> throttle · <b>A/D</b> steer · <b>drag</b> to look around · <button id="boatView">third-person view (V)</button> · <b>B</b> or Esc leaves the boat</div>
 <div id="hint">Drag to orbit · right‑drag / shift‑drag to pan · wheel to zoom.<br>World axes: X east, north is towards −Z. Ground RL 2.90 = 0 m.</div>
 
 <script src="lib/three.min.js"></script>
@@ -150,6 +156,11 @@ TEX.stair = canvasTex(256, 256, (g, w, h) => { // solid timber in the decking co
 TEX.wallTile = canvasTex(128, 128, (g, w, h) => { // 200 × 200 white wall tile, black grout
   g.fillStyle = '#f6f6f3'; g.fillRect(0, 0, w, h); g.fillStyle = '#141414'; g.fillRect(0, 0, w, 2); g.fillRect(0, 0, 2, h);
 }, 0.2, 0.2);
+TEX.solar = canvasTex(256, 384, (g, w, h) => { // one photovoltaic panel: silver frame, dark cells 6 × 10
+  g.fillStyle = '#c4c9ce'; g.fillRect(0, 0, w, h); g.fillStyle = '#0d1a30'; g.fillRect(8, 8, w - 16, h - 16);
+  const nx = 6, ny = 10, cw = (w - 16) / nx, ch = (h - 16) / ny;
+  for (let i = 0; i < nx; i++) for (let j = 0; j < ny; j++) { g.fillStyle = `rgb(${18 + Math.random() * 8},${34 + Math.random() * 10},${66 + Math.random() * 14})`; g.fillRect(8 + i * cw + 1.5, 8 + j * ch + 1.5, cw - 3, ch - 3); }
+}, 1, 1);
 TEX.floor = canvasTex(512, 256, (g, w, h) => {
   const n = 8, bh = h / n;
   for (let i = 0; i < n; i++) {
@@ -230,6 +241,7 @@ const MAT = {
   flood: new THREE.MeshStandardMaterial({ color: 0x2f7fd6, transparent: true, opacity: 0.35, roughness: 0.2, side: THREE.DoubleSide, depthWrite: false }),
   swale: std({ color: 0x55803a, roughness: 1 }),
   dish: std({ color: 0xc2c0b6, roughness: 0.9 }),
+  solar: std({ map: TEX.solar, roughness: 0.85, metalness: 0, side: THREE.DoubleSide }),
   soil: std({ color: 0x6b5a45, roughness: 1, side: THREE.DoubleSide }),
   fence: std({ map: TEX.paling, roughness: 0.9 }),
   slatsH: std({ map: TEX.slatsH, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.85 }),
@@ -581,6 +593,9 @@ const LAYERS = [
   ['slats', 'Sub-floor timber slat screening', '#78583a'],
   ['stormwater', 'Stormwater: downpipes, pipes, pits, trench, swale', '#2f7fd6'],
   ['flood', 'Defined Flood Event level RL 4.10', '#5aa0ff'],
+  ['boat', 'Fishing boat (on the flood)', '#e9eef2'],
+  ['sharks', 'Sharks (on the flood)', '#55606b'],
+  ['dimensions', 'Dimensions', '#0b3fb5'],
   ['labels', 'Labels', '#ffffff'],
 ];
 const G = {};
@@ -680,29 +695,36 @@ const REAR_DRAIN = (() => {
 /* =========================================================================
    EXISTING SHEDS (rear)
    ========================================================================= */
-/* Shed on a four-sided (not necessarily square) plan, gable roof. P = [SW, SE, NE, NW] in plan mm;
-   ridge 'EW' runs between the west and east walls, 'NS' between the south and north walls. */
-function quadShed(g, P, zE, zR, ridge, matWall, matRoof) {
-  const v = (p, h) => W(p[0], p[1], h), mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+/* Shed on a four-sided (not necessarily square) plan with a single-fall roof. P = [SW, SE, NE, NW] in plan mm.
+   highEdge = the wall the roof falls away from (0 south, 1 east, 2 north, 3 west); zLow / zHigh = wall-top heights (m). */
+function quadShed(g, P, zLow, zHigh, highEdge, matWall, matRoof) {
+  const v = (p, h) => W(p[0], p[1], h), hi = i => i === highEdge || i === (highEdge + 1) % 4, zOf = i => hi(i) ? zHigh : zLow;
   const c = [0, 1].map(k => (P[0][k] + P[1][k] + P[2][k] + P[3][k]) / 4), out = p => [c[0] + (p[0] - c[0]) * 1.07, c[1] + (p[1] - c[1]) * 1.07];
-  const isEnd = i => (ridge === 'EW') === (i % 2 === 1);   // edge i runs P[i] → P[i+1]: 0 south, 1 east, 2 north, 3 west
   for (let i = 0; i < 4; i++) {
-    const a = P[i], b = P[(i + 1) % 4], u = W(b[0] - a[0], b[1] - a[1], 0).normalize();
-    face(g, matWall, [v(a, -0.4), v(b, -0.4), v(b, zE), v(a, zE)], u, false);   // walls carry on below RL 2.90: the ground is graded down near the drains
-    if (isEnd(i)) face(g, matWall, [v(a, zE), v(b, zE), v(mid(a, b), zR - 0.06)], u, false);
-    else { // roof plane from this eave up to the ridge
-      const ra = mid(P[(i + 3) % 4], a), rb = mid(b, P[(i + 2) % 4]);
-      face(g, matRoof, [v(out(a), zE - 0.05), v(out(b), zE - 0.05), v(out(rb), zR), v(out(ra), zR)], W(rb[0] - ra[0], rb[1] - ra[1], 0).normalize());
-    }
+    const k = (i + 1) % 4, a = P[i], b = P[k];
+    face(g, matWall, [v(a, -0.4), v(b, -0.4), v(b, zOf(k)), v(a, zOf(i))], W(b[0] - a[0], b[1] - a[1], 0).normalize(), false);   // walls carry on below RL 2.90: the ground is graded down near the drains
   }
+  const a = P[highEdge], b = P[(highEdge + 1) % 4];   // corrugations run down the fall, i.e. square to the high wall
+  face(g, matRoof, P.map((q, i) => v(out(q), zOf(i) + 0.03)), W(b[0] - a[0], b[1] - a[1], 0).normalize());
 }
 {
   const g = G.sheds, mg = new Merger(g);
   // footprints from the stormwater plan (SW01/SW02): the fibro shed's east wall follows the skewed rear boundary
-  quadShed(g, [[-380, 25400], [7160, 25580], [6780, 30850], [-240, 29340]], 2.2, 2.9, 'EW', MAT.fibro, MAT.roof);          // fibro shed
-  quadShed(g, [[7260, 25560], [10770, 25640], [10430, 30960], [6880, 30930]], 2.3, 3.0, 'NS', MAT.shedMetal, MAT.roof);    // metal shed
-  // rear awning (open roof on posts)
-  face(g, MAT.roof, [W(9530, 21170, 2.5), W(12350, 21400, 2.5), W(12250, 25000, 2.3), W(9350, 24830, 2.3)], UX);
+  quadShed(g, [[-380, 25400], [7160, 25580], [6780, 30850], [-240, 29340]], 2.2, 2.7, 0, MAT.fibro, MAT.roof);          // fibro shed: falls north, to the rear
+  quadShed(g, [[7260, 25560], [10770, 25640], [10430, 30960], [6880, 30930]], 2.3, 2.8, 3, MAT.shedMetal, MAT.roof);    // metal shed: falls east
+  // rear awning: open frame on posts, roofed with nine solar panels (3 × 3), falling north
+  const AW = [W(9530, 21170, 2.5), W(12350, 21400, 2.5), W(12250, 25000, 2.3), W(9350, 24830, 2.3)];   // SW, SE, NE, NW
+  const onAw = (u, t, lift = 0) => AW[0].clone().lerp(AW[1], u).lerp(AW[3].clone().lerp(AW[2], u), t).add(new THREE.Vector3(0, lift, 0));
+  const GAP = 0.012;
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) {
+    const u0 = i / 3 + GAP, u1 = (i + 1) / 3 - GAP, t0 = j / 3 + GAP, t1 = (j + 1) / 3 - GAP, q = [onAw(u0, t0, 0.04), onAw(u1, t0, 0.04), onAw(u1, t1, 0.04), onAw(u0, t1, 0.04)];
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(q.flatMap(p => [p.x, p.y, p.z]), 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2)); geo.setIndex([0, 1, 2, 0, 2, 3]); geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, MAT.solar); m.castShadow = m.receiveShadow = true; g.add(m);
+  }
+  for (const t of [0.02, 1 / 3, 2 / 3, 0.98]) mg.bar(MAT.galv, onAw(0, t), onAw(1, t), 0.04, 0.05);                 // rails under the panels
+  for (const u of [0.03, 0.97]) mg.bar(MAT.timber, onAw(u, 0, -0.08), onAw(u, 1, -0.08), 0.07, 0.12);                // side beams on the posts
   for (const [x, y] of [[9630, 21280], [12240, 21500], [12150, 24890], [9460, 24730]]) mg.box(MAT.timber, x - 50, x + 50, y - 50, y + 50, -0.4, 2.3);
   mg.finish();
 }
@@ -905,20 +927,20 @@ const WET = new Set(['BATH', 'WC', 'LAUNDRY']);
   const lg = new Merger(G.lights);
   const chandelier = (X, Y, hCeil, small) => {
     const top = FFL + hCeil, sc = small ? 0.6 : 1;
-    lg.cyl(MAT.chrome, W(X, Y, top), W(X, Y, top - 0.02), 0.06 * sc, 16);                          // ceiling rose
-    lg.cyl(MAT.chrome, W(X, Y, top - 0.02), W(X, Y, top - 0.22 * sc), 0.006, 6);                     // chain
-    lg.cyl(MAT.crystal, W(X, Y, top - 0.22 * sc), W(X, Y, top - 0.52 * sc), 0.045 * sc, 12);         // central column
-    lg.cyl(MAT.chrome, W(X, Y, top - 0.36 * sc), W(X, Y, top - 0.40 * sc), 0.07 * sc, 16);
-    lg.cyl(MAT.crystal, W(X, Y, top - 0.52 * sc), W(X, Y, top - 0.62 * sc), 0.08 * sc, 16);          // bowl
+    lg.cyl(MAT.chrome, W(X, Y, top), W(X, Y, top - 0.02), 0.06 * sc, 48);                          // ceiling rose
+    lg.cyl(MAT.chrome, W(X, Y, top - 0.02), W(X, Y, top - 0.22 * sc), 0.006, 18);                     // chain
+    lg.cyl(MAT.crystal, W(X, Y, top - 0.22 * sc), W(X, Y, top - 0.52 * sc), 0.045 * sc, 36);         // central column
+    lg.cyl(MAT.chrome, W(X, Y, top - 0.36 * sc), W(X, Y, top - 0.40 * sc), 0.07 * sc, 48);
+    lg.cyl(MAT.crystal, W(X, Y, top - 0.52 * sc), W(X, Y, top - 0.62 * sc), 0.08 * sc, 48);          // bowl
     const n = 5, R = 300 * sc;
     for (let i = 0; i < n; i++) {
       const a = i / n * Math.PI * 2, ex = X + R * Math.cos(a), ey = Y + R * Math.sin(a);
-      lg.cyl(MAT.crystal, W(X, Y, top - 0.55 * sc), W(ex, ey, top - 0.45 * sc), 0.012, 8);          // arm
-      lg.cyl(MAT.crystal, W(ex, ey, top - 0.47 * sc), W(ex, ey, top - 0.43 * sc), 0.045 * sc, 12);  // drip tray
-      lg.cyl(MAT.chrome, W(ex, ey, top - 0.44 * sc), W(ex, ey, top - 0.30 * sc), 0.014, 8);          // candle
-      const g = new THREE.SphereGeometry(0.03 * sc, 10, 8); g.scale(1, 1.6, 1);
+      lg.cyl(MAT.crystal, W(X, Y, top - 0.55 * sc), W(ex, ey, top - 0.45 * sc), 0.012, 24);          // arm
+      lg.cyl(MAT.crystal, W(ex, ey, top - 0.47 * sc), W(ex, ey, top - 0.43 * sc), 0.045 * sc, 36);  // drip tray
+      lg.cyl(MAT.chrome, W(ex, ey, top - 0.44 * sc), W(ex, ey, top - 0.30 * sc), 0.014, 24);          // candle
+      const g = new THREE.SphereGeometry(0.03 * sc, 18, 14); g.scale(1, 1.6, 1);
       lg.add(g, MAT.bulb, W(ex, ey, top - 0.26 * sc));                                                // lamp
-      for (let k = 0; k < 3; k++) lg.cyl(MAT.crystal, W(ex, ey, top - (0.48 + k * 0.05) * sc), W(ex, ey, top - (0.51 + k * 0.05) * sc), 0.012, 6); // drops
+      for (let k = 0; k < 3; k++) lg.cyl(MAT.crystal, W(ex, ey, top - (0.48 + k * 0.05) * sc), W(ex, ey, top - (0.51 + k * 0.05) * sc), 0.012, 18); // drops
     }
     const light = new THREE.PointLight(0xffe9c4, small ? 0.45 : 0.75, 8, 2);
     light.position.copy(W(X, Y, top - 0.35 * sc)); G.lights.add(light);
@@ -1221,7 +1243,7 @@ const BRACES = [ // [Y0,X0,Y1,X1]
   pipe([W(12300, 16300, PIPE_Z - 0.1), W(7450, 18200, PIPE_Z - 0.2)], MAT.pipeOverflow);
   // Evertrench Jumbo absorption trench 510W × 3000L × 410D with 450×450×600 pits each end
   mg.box(MAT.gravel, 3550, 7450, 17900, 18500, rl(2.15) - 0.1, rl(2.65) - 0.05);
-  mg.box(MAT.pipe, 3900, 7000, 17940, 18460, rl(2.15), rl(2.15) + 0.41);
+  mg.box(MAT.pipe, 4000, 7000, 17945, 18455, rl(2.15), rl(2.15) + 0.41);   // 3000 L × 510 W × 410 D, between the pits
   pit(7225, 18200, 450, 2.65, 'PIT 2 (absorption)', 0.60); pit(3775, 18200, 450, 2.65, 'PIT 2A', 0.60);
   for (let k = 0; k < 4; k++) mg.cyl(MAT.pipe, W(3775, 17980 + k * 150, rl(2.15) + 0.1), W(7225, 17980 + k * 150, rl(2.15) + 0.1), 0.045, 8);
   // PIT 4 & PIT 5: 450 × 450 × 400D junction pits collecting overland flow from the dish drains (SW01)
@@ -1252,7 +1274,8 @@ const BRACES = [ // [Y0,X0,Y1,X1]
   const spotMat = new THREE.MeshBasicMaterial({ color: 0xc40000, toneMapped: false });
   G.site.updateMatrixWorld(true);
   const probe = new THREE.Raycaster();
-  for (const [X, Y, t] of [[-300, 21930, '2.80'], [11540, 25910, '2.62'], [11670, 31160, '2.76']]) {
+  for (const [X, Y, t] of [[-300, 21930, '2.80'], [11540, 25910, '2.62'], [11670, 31160, '2.76'],
+    [-560, -5710, '3.05'], [-600, 340, '2.84'], [-240, 15080, '2.75'], [2640, 18940, '2.73'], [9200, 18360, '2.68'], [11900, 16260, '2.70'], [12530, -270, '2.78'], [8750, -3430, '2.83']]) {
     probe.set(W(X, Y, 5), new THREE.Vector3(0, -1, 0)); const hit = probe.intersectObjects(G.site.children, false)[0], y0 = hit ? hit.point.y : 0;   // sit on the graded ground
     const d = new THREE.Mesh(new THREE.CircleGeometry(0.11, 24), spotMat); d.rotation.x = -Math.PI / 2; d.position.copy(W(X, Y, y0 + 0.02)); g.add(d);
     label(g, t, X + 420, Y, y0 + 0.3, 0.3, '#e0202a', 'rgba(255,255,255,0.9)');
@@ -1267,12 +1290,341 @@ const BRACES = [ // [Y0,X0,Y1,X1]
   label(G.labels, 'TURFED SWALE 400W', 12500, 5000, 0.5, 0.32, '#ffffff', 'rgba(60,110,40,0.85)');
   label(G.labels, 'DISH DRAIN', 5750, 31700, 0.5, 0.32, '#ffffff', 'rgba(60,60,60,0.8)');
 }
-/* defined flood event level */
+/* =========================================================================
+   DIMENSIONS (own layer): dish drain runs, absorption trench and its set-out from the house
+   ========================================================================= */
 {
-  const p = new THREE.Mesh(new THREE.PlaneGeometry(60, 60), MAT.flood);
-  p.rotation.x = -Math.PI / 2; p.position.set(mm(5825), rl(4.10) + 0.003, -mm(10000)); G.flood.add(p);   // +3 mm: clear of the stair landing soffit at the same level
+  const dimMat = Object.assign(new THREE.MeshBasicMaterial({ color: 0x0b3fb5, toneMapped: false }), { noShadow: true });
+  const dm = new Merger(G.dimensions), fmt = L => L >= 1000 ? (L / 1000).toFixed(2) + ' m' : Math.round(L) + ' mm';
+  /* a, b = [X, Y] plan mm; h = height of the dimension line (m). off = sideways shift of the line (mm, to the left of a→b).
+     ya / yb = level the end marks drop to (default: short ticks). text(len) overrides the label. */
+  const dim = (a, b, h, o = {}) => {
+    const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy), off = o.off || 0, nx = -dy / L * off, ny = dx / L * off;
+    const A = [a[0] + nx, a[1] + ny], B = [b[0] + nx, b[1] + ny];
+    dm.bar(dimMat, W(A[0], A[1], h), W(B[0], B[1], h), 0.025, 0.025);
+    for (const [p, q, y0] of [[a, A, o.ya ?? h - 0.15], [b, B, o.yb ?? h - 0.15]]) {
+      dm.bar(dimMat, W(q[0], q[1], y0), W(q[0], q[1], h + 0.15), 0.025, 0.025);                 // end mark / witness pole
+      if (off) dm.bar(dimMat, W(p[0], p[1], h), W(q[0], q[1], h), 0.015, 0.015);                 // witness line back to the measured point
+    }
+    label(G.dimensions, o.text ? o.text(fmt(L)) : fmt(L), (A[0] + B[0]) / 2, (A[1] + B[1]) / 2, h + 0.28, 0.3, '#ffffff', 'rgba(11,63,181,0.92)');
+    return L;
+  };
+  // dish drains: each run is measured along the drain, on a line 2.3 m up (clear of the fence and visible over the sheds), with poles down to the drain
+  const { P5, P4, NW, NE, u5, u4, EDGE, RL5, RL4, rlNW, rlNE } = REAR_DRAIN, xy = q => [q.x, q.y], H = 2.3;
+  const s5 = P5.clone().addScaledVector(u5, EDGE), s4 = P4.clone().addScaledVector(u4, -EDGE);
+  const Lw = dim(xy(s5), xy(NW), H, { ya: rl(RL5), yb: rl(rlNW), text: t => `PIT 5 to corner ${t}` });
+  const Lr = dim(xy(NW), xy(NE), H, { ya: rl(rlNW), yb: rl(rlNE), text: t => `rear run ${t}` });
+  const Le = dim(xy(NE), xy(s4), H, { ya: rl(rlNE), yb: rl(RL4), text: t => `corner to PIT 4 ${t}` });
+  label(G.dimensions, `DISH DRAIN overall ${fmt(Lw + Lr + Le)} (900 mm units)`, (NW.x + NE.x) / 2, (NW.y + NE.y) / 2, H + 0.75, 0.34, '#ffffff', 'rgba(11,63,181,0.92)');
+  // absorption trench (the large pit): length, width, end pit, and distance from the rear wall of the house
+  dim([4000, 17945], [7000, 17945], 0.3, { off: -700, text: t => `trench ${t} long` });
+  dim([7450, 17945], [7450, 18455], 0.3, { off: -600, text: t => `${t} wide` });
+  dim([7000, 18455], [7450, 18455], 0.3, { off: 600, text: t => `pit ${t} sq` });
+  dim([4400, 12075], [4400, 17945], 0.3, { text: t => `${t} from rear wall` });
+  dm.finish();
+}
+/* Defined flood event level RL 4.10: a water surface with waves (three crossing wave trains, ±100 mm, 1–1.7 m long),
+   a fishing boat on the street that can be driven, and sharks. One button flattens it back to a plain level plane. */
+const FLOOD_Y = rl(4.10) + 0.003, FLOOD_C = [5.825, 10.0], FLOOD_HALF = 45;   // +3 mm: clear of the stair landing soffit at the same level
+const FLOOD = { fun: true, uTime: { value: 0 }, uAmp: { value: 1 },
+  waves: [[3.6, 1.4, 0.046, 1.8], [-1.8, 4.4, 0.033, 2.5], [6.4, -5.2, 0.021, 3.8]] };   // [kx, ky (rad/m), amplitude (m), speed (rad/s)]
+const waveH = (X, Y, t) => { // water height above RL 4.10 at plan X, Y (metres)
+  let h = 0; const x = X - FLOOD_C[0], y = Y - FLOOD_C[1];
+  for (const [kx, ky, a, w] of FLOOD.waves) h += a * Math.sin(kx * x + ky * y + w * t);
+  return h * FLOOD.uAmp.value;
+};
+MAT.flood.onBeforeCompile = sh => { // the same waves, displaced on the GPU
+  sh.uniforms.uTime = FLOOD.uTime; sh.uniforms.uAmp = FLOOD.uAmp;
+  const f = v => v.toFixed(4), trains = FLOOD.waves.map(([kx, ky, a, w]) =>
+    `ph = dot(p, vec2(${f(kx)}, ${f(ky)})) + ${f(w)} * uTime; c = ${f(a)} * cos(ph); r += vec3(${f(a)} * sin(ph), ${f(kx)} * c, ${f(ky)} * c);`).join('\n');
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', `#include <common>\nuniform float uTime;\nuniform float uAmp;\nvec3 floodWave(vec2 p) { vec3 r = vec3(0.0); float ph; float c;\n${trains}\nreturn r * uAmp; }`)
+    .replace('#include <beginnormal_vertex>', 'vec3 fw = floodWave(position.xy);\nvec3 objectNormal = normalize(vec3(-fw.y, -fw.z, 1.0));\n#ifdef USE_TANGENT\nvec3 objectTangent = vec3(tangent.xyz);\n#endif')
+    .replace('#include <begin_vertex>', 'vec3 transformed = vec3(position.xy, position.z + fw.x);');
+};
+{
+  const p = new THREE.Mesh(new THREE.PlaneGeometry(FLOOD_HALF * 2, FLOOD_HALF * 2, 450, 450), MAT.flood);
+  p.rotation.x = -Math.PI / 2; p.position.set(FLOOD_C[0], FLOOD_Y, -FLOOD_C[1]); p.frustumCulled = false; G.flood.add(p);
   label(G.flood, 'DFE RL 4.10 (habitable floor must be ≥ RL 5.24)', -3500, -4000, rl(4.10) + 0.4, 0.42, '#ffffff', 'rgba(30,90,180,0.85)');
   G.flood.visible = false;
+}
+/* ---- fishing boat: a 5.8 m centre-console with a T-top, blue-wrapped topsides over a bare aluminium bottom and a black
+        outboard. Local +x is the bow, +y up, y = 0 the waterline. Floats on the flood out on the street. ---- */
+const BOAT = { on: false, fpv: true, look: { yaw: 0, pitch: 0, held: false }, steer: 0, eye: new THREE.Vector3(-0.36, 1.69, 0), g: new THREE.Group(), x: 5.8, y: -14.0, h: 0, v: 0, dx: 0, dy: 0, w: 0, kick: 0, saved: null, tip: new THREE.Vector3(-4.6, 3.0, 0.15), bob: new THREE.Vector2(-5.2, -14.0), bobber: null, line: null };
+{
+  const c = (col, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: col, roughness: 0.6 }, o));
+  const wrap = canvasTex(512, 128, (g, w, h) => { // deep-blue printed wrap: dark base, lighter brush strokes and flecks
+    const gr = g.createLinearGradient(0, 0, w, 0); gr.addColorStop(0, '#061a4a'); gr.addColorStop(0.5, '#0a3aa8'); gr.addColorStop(1, '#05245f'); g.fillStyle = gr; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 90; i++) { g.strokeStyle = `rgba(${90 + Math.random() * 130},${150 + Math.random() * 90},255,${0.08 + Math.random() * 0.25})`; g.lineWidth = 1 + Math.random() * 5; g.beginPath(); const x = Math.random() * w, y = Math.random() * h; g.moveTo(x, y); g.bezierCurveTo(x + 30, y - 25 * Math.random(), x + 70, y + 25 * Math.random(), x + 60 + Math.random() * 90, y + (Math.random() - 0.5) * 30); g.stroke(); }
+    for (let i = 0; i < 400; i++) { g.fillStyle = `rgba(200,225,255,${Math.random() * 0.25})`; g.fillRect(Math.random() * w, Math.random() * h, 1 + Math.random() * 2, 1 + Math.random() * 2); }
+  }, 3.0, 0.72);
+  const M = { wrap: c(0xffffff, { map: wrap, roughness: 0.35 }), alu: c(0xb9c0c6, { roughness: 0.35, metalness: 0.6 }), white: c(0xf4f6f7, { roughness: 0.45 }), deck: c(0xc9cdd0, { roughness: 0.8 }),
+    black: c(0x15181b, { roughness: 0.4 }), coat: c(0xe2b714), skin: c(0xd9a77a), hat: c(0x5d6b3a), legs: c(0x2a3a55), rod: c(0x1a1a1a) };
+  const add = (geo, mat, x = 0, y = 0, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; BOAT.g.add(m); return m; };
+  const tube = (mat, a, b, r, r2 = r) => { const m = add(new THREE.CylinderGeometry(r2, r, a.distanceTo(b), 24), mat); m.position.copy(a).add(b).multiplyScalar(0.5); m.quaternion.setFromUnitVectors(UY, b.clone().sub(a).normalize()); return m; };
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  // plan outline: straight sides back to the transom, a smooth curved bow (13 stations a side) and eased transom corners
+  const bow = []; for (let i = 0; i <= 12; i++) { const a = i / 12 * Math.PI / 2; bow.push([1.3 + 1.8 * Math.sin(a), -1.05 * Math.pow(Math.cos(a), 0.75)]); }
+  const half = [[-2.7, -0.97], [-2.66, -1.03], [-2.58, -1.05], [-1.6, -1.05], [-0.6, -1.05], [0.4, -1.05]].concat(bow);
+  const plan = half.concat(half.slice(0, -1).reverse().map(q => [q[0], -q[1]]));
+  const sh = (kx, ky, dx = 0) => plan.map(q => new THREE.Vector2(q[0] * kx + dx, q[1] * ky)), ring = (o, i) => { const r = new THREE.Shape(o); r.holes.push(new THREE.Path(i)); return r; };
+  const up = (shape, depth, y0) => { const g = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false }); g.rotateX(-Math.PI / 2); g.translate(0, y0, 0); return g; };
+  // bottom: bare aluminium, veed and raked at the bow; its top face is the cockpit sole
+  const bottom = up(new THREE.Shape(sh(1, 1)), 0.4, -0.35);
+  for (let i = 0, P = bottom.attributes.position; i < P.count; i++) if (P.getY(i) < -0.2) { P.setZ(i, P.getZ(i) * 0.45); if (P.getX(i) > 1.3) P.setX(i, 1.3 + (P.getX(i) - 1.3) * 0.45); }
+  bottom.computeVertexNormals(); add(bottom, M.alu);
+  // topsides: blue-wrapped shell, flaring forward at the gunwale; white liner inside; white gunwale capping
+  const sides = up(ring(sh(1, 1), sh(0.93, 0.9, -0.03)), 0.7, 0.05);
+  for (let i = 0, P = sides.attributes.position; i < P.count; i++) if (P.getY(i) > 0.7 && P.getX(i) > 1.3) P.setX(i, 1.3 + (P.getX(i) - 1.3) * 1.1);
+  sides.computeVertexNormals(); add(sides, M.wrap);
+  add(up(ring(sh(0.928, 0.897, -0.03), sh(0.9, 0.86, -0.03)), 0.69, 0.055), M.white);
+  add(up(ring(sh(1.012, 1.03), sh(0.9, 0.86, -0.03)), 0.05, 0.75), M.white);
+  add(up(new THREE.Shape(sh(0.9, 0.86, -0.03)), 0.02, 0.05), M.deck);
+  // centre console with screen, and the T-top: white frame raked aft, flat hardtop, rods racked upright behind it
+  add(new THREE.BoxGeometry(0.7, 1.0, 0.8), M.black, 0.35, 0.57, 0); add(new THREE.BoxGeometry(0.5, 0.06, 0.82), M.white, 0.25, 1.1, 0);
+  add(new THREE.BoxGeometry(0.03, 0.3, 0.7), c(0x9fc4e8, { transparent: true, opacity: 0.45, roughness: 0.1 }), 0.62, 1.25, 0);
+  for (const z of [-0.5, 0.5]) { tube(M.white, V(0.75, 0.07, z * 0.9), V(0.35, 2.28, z * 1.3), 0.03); tube(M.white, V(-0.1, 0.07, z * 0.9), V(-0.55, 2.28, z * 1.3), 0.03); tube(M.white, V(0.56, 1.25, z * 1.1), V(-0.34, 1.25, z * 1.1), 0.022); }
+  add(new THREE.BoxGeometry(1.9, 0.09, 1.65), M.white, -0.05, 2.32, 0);
+  for (const z of [-0.55, -0.18, 0.18, 0.55]) { tube(M.rod, V(-0.95, 2.2, z), V(-1.2, 4.0, z * 1.15), 0.012, 0.004); tube(M.alu, V(-0.93, 2.12, z), V(-0.97, 2.5, z * 1.02), 0.022); }   // rods in their holders
+  tube(M.alu, V(-0.75, 0.07, -0.45), V(-0.75, 1.0, -0.45), 0.02); tube(M.alu, V(-0.75, 0.07, 0.45), V(-0.75, 1.0, 0.45), 0.02); tube(M.alu, V(-0.75, 1.0, -0.45), V(-0.75, 1.0, 0.45), 0.02);   // leaning rail
+  /* outboard: white sculpted cowling, mid-section and leg, anti-ventilation plate, torpedo gearcase with skeg and a
+     three-blade stainless propeller. It hangs on a transom bracket, swings with the helm and the prop spins with the throttle. */
+  {
+    const motor = new THREE.Group(), white = c(0xf2f4f5, { roughness: 0.3 }), grey = c(0xd3d7da, { roughness: 0.35 }), steel = c(0xcfd4d8, { roughness: 0.25, metalness: 0.45 }), dark = c(0x2a2e33, { roughness: 0.5 });
+    motor.position.set(-2.82, 0, 0); BOAT.g.add(motor); BOAT.motor = motor;   // pivots about the steering axis just behind the transom
+    const put = (geo, mat, x = 0, y = 0, z = 0, parent = motor) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; parent.add(m); return m; };
+    const slab = (pts, width, bevel, mat, smooth = true) => { // side profile (x aft-negative, y up) given thickness, with rounded edges
+      const sh = new THREE.Shape(); if (smooth) { sh.moveTo(pts[0][0], pts[0][1]); sh.splineThru(pts.slice(1).concat([pts[0]]).map(q => new THREE.Vector2(q[0], q[1]))); } else sh.setFromPoints(pts.map(q => new THREE.Vector2(q[0], q[1])));
+      const g = new THREE.ExtrudeGeometry(sh, { depth: width - 2 * bevel, bevelEnabled: bevel > 0, bevelThickness: bevel, bevelSize: bevel, bevelSegments: 5, curveSegments: 10 });
+      g.translate(0, 0, -(width - 2 * bevel) / 2); return put(g, mat);
+    };
+    slab([[0.02, 0.74], [0.07, 1.0], [0.04, 1.3], [-0.08, 1.47], [-0.3, 1.5], [-0.5, 1.4], [-0.58, 1.15], [-0.55, 0.85], [-0.45, 0.74], [-0.2, 0.71]], 0.46, 0.07, white);      // cowling
+    slab([[-0.02, 0.76], [-0.06, 0.4], [-0.1, 0.02], [-0.36, 0.02], [-0.42, 0.4], [-0.46, 0.76]], 0.2, 0.035, white, false);                                              // mid-section
+    slab([[-0.12, 0.04], [-0.15, -0.42], [-0.38, -0.42], [-0.36, 0.04]], 0.075, 0.02, grey, false);                                                                       // leg
+    slab([[0.0, -0.1], [0.02, -0.125], [-0.5, -0.125], [-0.62, -0.11], [-0.5, -0.1]], 0.3, 0.008, grey, false);                                                           // anti-ventilation plate
+    slab([[-0.14, -0.55], [-0.2, -0.8], [-0.3, -0.82], [-0.4, -0.55]], 0.03, 0.008, grey, false);                                                                         // skeg
+    const torpedo = put(new THREE.CapsuleGeometry(0.07, 0.4, 10, 24), grey, -0.27, -0.49, 0); torpedo.rotation.z = Math.PI / 2;                                           // gearcase
+    put(new THREE.BoxGeometry(0.16, 0.36, 0.3), dark, 0.06, 0.62, 0); put(new THREE.BoxGeometry(0.1, 0.1, 0.36), dark, 0.07, 0.9, 0);                                     // transom bracket and tilt tube
+    put(new THREE.BoxGeometry(0.02, 0.2, 0.3), c(0x0c0d0f), -0.3, 1.36, 0).scale.set(1, 1, 0.9);                                                                          // air intake slot
+    // propeller: hub and three raked, pitched blades
+    const prop = new THREE.Group(); prop.position.set(-0.58, -0.49, 0); motor.add(prop); BOAT.prop = prop;
+    const hub = put(new THREE.CylinderGeometry(0.035, 0.05, 0.18, 24), steel, 0, 0, 0, prop); hub.rotation.z = Math.PI / 2;
+    put(new THREE.ConeGeometry(0.035, 0.08, 24), steel, -0.13, 0, 0, prop).rotation.z = Math.PI / 2;
+    for (let i = 0; i < 3; i++) {
+      const arm = new THREE.Group(); arm.rotation.x = i / 3 * Math.PI * 2; prop.add(arm);
+      const blade = put(new THREE.SphereGeometry(1, 20, 14), steel, -0.02, 0.115, 0, arm); blade.scale.set(0.012, 0.1, 0.075); blade.rotation.set(0, 0.6, 0.18);   // pitch and rake
+    }
+  }
+  const ball = (mat, r, x, y, z) => add(new THREE.SphereGeometry(r, 24, 18), mat, x, y, z);
+  const person = (x, face, coat) => { // standing figure at x, facing +x (face = 1) or aft (-1): legs, torso, head, bucket hat
+    for (const z of [-0.09, 0.09]) tube(M.legs, V(x, 0.07, z), V(x, 0.9, z), 0.075, 0.085);
+    tube(coat, V(x, 0.88, 0), V(x, 1.5, 0), 0.17, 0.2); ball(coat, 0.2, x, 1.5, 0).scale.set(0.75, 0.45, 1);
+    return [ball(M.skin, 0.115, x + face * 0.01, 1.66, 0), add(new THREE.CylinderGeometry(0.2, 0.22, 0.02, 40), M.hat, x, 1.75, 0), add(new THREE.CylinderGeometry(0.1, 0.12, 0.1, 40), M.hat, x, 1.8, 0)];
+  };
+  const arm = (coat, sh, elbow, hand) => { tube(coat, sh, elbow, 0.055, 0.05); tube(coat, elbow, hand, 0.05, 0.042); ball(M.skin, 0.05, hand.x, hand.y, hand.z); };
+  // the angler stands in the stern, casting over the transom
+  person(-2.0, -1, M.coat);
+  arm(M.coat, V(-2.0, 1.42, 0.2), V(-2.15, 1.2, 0.2), V(-2.34, 1.3, 0.15)); arm(M.coat, V(-2.0, 1.42, -0.2), V(-2.12, 1.18, -0.1), V(-2.26, 1.22, 0.1));
+  // the driver stands at the console: left hand on the wheel, a beer in the right
+  const shirt = c(0xc0392b), WHEEL = V(-0.07, 1.02, 0.12);
+  const wheel = add(new THREE.TorusGeometry(0.17, 0.018, 12, 48), M.black); wheel.position.copy(WHEEL); wheel.rotation.set(0, Math.PI / 2, 0); wheel.rotation.z = 0.35;
+  for (let i = 0; i < 3; i++) { const a = i / 3 * Math.PI * 2 + 0.5, rim = V(WHEEL.x - 0.06 * Math.sin(a) * 0, WHEEL.y + 0.17 * Math.cos(a) * 0.94, WHEEL.z + 0.17 * Math.sin(a)); tube(M.alu, WHEEL, rim, 0.01); }   // spokes
+  tube(M.alu, V(0.0, 0.98, 0.12), WHEEL, 0.02);                                                                                                     // column into the console
+  BOAT.head = person(-0.45, 1, shirt);
+  arm(shirt, V(-0.45, 1.42, 0.2), V(-0.3, 1.18, 0.22), V(-0.1, 1.17, 0.2));                         // left hand on the wheel rim
+  const HAND = V(-0.28, 1.4, -0.34); arm(shirt, V(-0.45, 1.42, -0.2), V(-0.42, 1.16, -0.3), HAND);   // right arm bent up, holding the beer
+  add(new THREE.CylinderGeometry(0.032, 0.032, 0.13, 24), c(0x6b3b12, { roughness: 0.25 }), HAND.x, HAND.y + 0.06, HAND.z);                          // stubby: brown glass
+  add(new THREE.CylinderGeometry(0.013, 0.03, 0.06, 24), c(0x6b3b12, { roughness: 0.25 }), HAND.x, HAND.y + 0.155, HAND.z);                          // neck
+  add(new THREE.CylinderGeometry(0.033, 0.033, 0.06, 24), c(0xf2d21b, { roughness: 0.5 }), HAND.x, HAND.y + 0.06, HAND.z);                           // label
+  add(new THREE.CylinderGeometry(0.014, 0.014, 0.008, 16), c(0xd8d8d8, { metalness: 0.6 }), HAND.x, HAND.y + 0.187, HAND.z);                         // cap
+  // "Jaws Shark Adventures" lettered on both sides
+  const letter = canvasTex(1024, 160, (g, w, h) => {
+    g.clearRect(0, 0, w, h); g.font = 'italic 900 70px "Arial Black", Impact, Arial, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineJoin = 'round'; g.lineWidth = 10; g.strokeStyle = '#04123a'; g.strokeText('Jaws Shark Adventures', w / 2, h / 2 + 4); g.fillStyle = '#ffffff'; g.fillText('Jaws Shark Adventures', w / 2, h / 2 + 4);
+  }, 1, 1);
+  const nameMat = new THREE.MeshStandardMaterial({ map: letter, transparent: true, roughness: 0.4, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  for (const sd of [1, -1]) { const n = new THREE.Mesh(new THREE.PlaneGeometry(3.3, 0.5), nameMat); n.position.set(-0.7, 0.4, sd * 1.056); if (sd < 0) n.rotation.y = Math.PI; BOAT.g.add(n); }
+  tube(M.rod, V(-2.34, 1.3, 0.15), BOAT.tip, 0.012, 0.004);
+  BOAT.g.rotation.order = 'YZX'; G.boat.add(BOAT.g);
+  BOAT.line = new THREE.Line(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(16 * 3), 3)), new THREE.LineBasicMaterial({ color: 0xffffff }));
+  BOAT.line.frustumCulled = false; G.boat.add(BOAT.line);
+  BOAT.bobber = new THREE.Group(); G.boat.add(BOAT.bobber);
+  const top = new THREE.Mesh(new THREE.SphereGeometry(0.07, 24, 18), new THREE.MeshStandardMaterial({ color: 0xd9281e, roughness: 0.4 })); BOAT.bobber.add(top);
+  const base = new THREE.Mesh(new THREE.SphereGeometry(0.068, 24, 18), new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4 })); base.position.y = -0.03; BOAT.bobber.add(base);
+  G.boat.visible = false;
+}
+function boatMove(dx, dy) { // shift the boat unless a wall, fence or the edge of the water is in the way
+  const B = BOAT, L = Math.hypot(dx, dy); if (L < 1e-6) return true;
+  const ux = dx / L, uy = dy / L, fx = Math.cos(B.h), fy = Math.sin(B.h), reach = 3.4 * Math.abs(ux * fx + uy * fy) + 1.3 * Math.abs(uy * fx - ux * fy);
+  ray.set(new THREE.Vector3(B.x, FLOOD_Y + 0.35, -B.y), new THREE.Vector3(ux, 0, -uy)); ray.near = 0; ray.far = L + reach;
+  const nx = B.x + dx, ny = B.y + dy, lim = FLOOD_HALF - 3;
+  if (ray.intersectObjects(collidables(), false).length || Math.abs(nx - FLOOD_C[0]) > lim || Math.abs(ny - FLOOD_C[1]) > lim) return false;
+  B.x = nx; B.y = ny; return true;
+}
+function updateBoat(dt, t) {
+  const B = BOAT, k = WALK.keys, ease = r => 1 - Math.exp(-dt * r);
+  if (B.on) { // drive: throttle, drag, speed-dependent steering, stop at obstacles and at the edge of the water
+    const thr = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0), steer = (k.KeyA || k.ArrowLeft ? 1 : 0) - (k.KeyD || k.ArrowRight ? 1 : 0);
+    B.v = THREE.MathUtils.clamp((B.v + thr * 3.2 * dt) * (1 - 0.55 * dt), -2.5, 8);
+    B.h += steer * 1.1 * dt * THREE.MathUtils.clamp(B.v / 3, -1, 1); B.steer = steer; B.thr = thr;
+    const step = B.v * dt; if (!boatMove(Math.cos(B.h) * step, Math.sin(B.h) * step)) B.v *= -0.25;
+  }
+  // knocks from sharks: a shove, a spin and a roll jolt, all dying away
+  if (Math.abs(B.dx) + Math.abs(B.dy) > 1e-4) { if (!boatMove(B.dx * dt, B.dy * dt)) B.dx = B.dy = 0; const d = Math.exp(-dt * 1.6); B.dx *= d; B.dy *= d; }
+  B.h += B.w * dt; B.w *= Math.exp(-dt * 2); B.kick *= Math.exp(-dt * 2.2);
+  // float: ride the waves, pitch and roll with the local slope
+  const fx = Math.cos(B.h), fy = Math.sin(B.h), W_ = (a, s) => waveH(B.x + fx * a + fy * s, B.y + fy * a - fx * s, t);
+  const hb = W_(2.2, 0), hs = W_(-2.2, 0), hz = W_(0, 0.9), hn = W_(0, -0.9);
+  B.g.position.set(B.x, FLOOD_Y + 0.1 + (hb + hs + hz + hn) / 4 * 0.8, -B.y);
+  B.g.rotation.y = B.h; B.g.rotation.z += (Math.atan2(hb - hs, 4.4) - B.g.rotation.z) * ease(5); B.g.rotation.x += (Math.atan2(hn - hz, 1.8) + B.kick - B.g.rotation.x) * ease(5);
+  // float on the end of the line: trails about 6 m behind the rod tip
+  B.bob.lerp(V2(B.x - fx * 11, B.y - fy * 11), ease(1.2));
+  B.bobber.position.set(B.bob.x, FLOOD_Y + waveH(B.bob.x, B.bob.y, t) + 0.02, -B.bob.y);
+  B.g.updateMatrixWorld(true);
+  const tip = B.g.localToWorld(B.tip.clone()), P = B.line.geometry.attributes.position;
+  for (let i = 0; i < 16; i++) { const u = i / 15; P.setXYZ(i, tip.x + (B.bobber.position.x - tip.x) * u, tip.y + (B.bobber.position.y - tip.y) * u - 0.45 * 4 * u * (1 - u) * (1 - u), tip.z + (B.bobber.position.z - tip.z) * u); }
+  P.needsUpdate = true;
+  // outboard: swings with the helm, prop turns with the throttle (ticks over while someone is at the wheel)
+  B.motor.rotation.y += ((B.on ? -B.steer * 0.45 : 0) - B.motor.rotation.y) * ease(6);
+  B.prop.rotation.x += dt * (B.on ? 5 + Math.abs(B.v) * 9 + Math.abs(B.thr || 0) * 14 : 0);
+  if (B.on) { // camera: the driver's eyes by default, or a chase view; the mouse turns the head and it eases back when released
+    const L = B.look; if (!L.held) { const d = Math.exp(-dt * 0.8); L.yaw *= d; L.pitch *= d; }
+    for (const m of B.head) m.visible = !B.fpv;
+    if (B.fpv) {
+      camera.position.copy(B.g.localToWorld(B.eye.clone()));
+      camera.rotation.set(L.pitch, B.h - Math.PI / 2 + L.yaw, 0, 'YXZ');
+    } else {
+      const a = B.h + L.yaw, cx = Math.cos(a), cy = Math.sin(a);
+      camera.position.lerp(new THREE.Vector3(B.x - cx * 11, FLOOD_Y + 4.6 - L.pitch * 5, -(B.y - cy * 11)), ease(4));
+      camera.lookAt(B.x + cx * 3, FLOOD_Y + 1.3, -(B.y + cy * 3));
+    }
+  }
+}
+/* ---- sharks: about 3.2 m, torpedo body with countershading (grey back, white belly), dorsal, pectoral, pelvic and
+        crescent tail fins, swimming with a travelling body wave. Two patrol the street and three circle the lot outside
+        the fence; every so often one peels off, charges the boat and bumps it, then sheers away. ---- */
+const SHARKS = [];
+function sharkGeometry() {
+  const GREY = new THREE.Color(0x5b6670), FIN = new THREE.Color(0x4a545d), BELLY = new THREE.Color(0xe9edef), EYE = new THREE.Color(0x0a0a0a), parts = [];
+  const push = (g, colour) => { // colour: fixed, or null for countershading by height
+    g = g.index ? g.toNonIndexed() : g; g.deleteAttribute('uv'); g.computeVertexNormals();
+    const P = g.attributes.position, c = new Float32Array(P.count * 3), k = new THREE.Color();
+    for (let i = 0; i < P.count; i++) { if (colour) k.copy(colour); else k.copy(BELLY).lerp(GREY, THREE.MathUtils.smoothstep(P.getY(i), -0.13, 0.03)); c[i * 3] = k.r; c[i * 3 + 1] = k.g; c[i * 3 + 2] = k.b; }
+    g.setAttribute('color', new THREE.Float32BufferAttribute(c, 3)); parts.push(g);
+  };
+  // body: lathe of a smooth girth profile from the snout (x = 1.6) to the tail stock (x = -1.6), a little deeper than wide, flatter underneath
+  const prof = new THREE.SplineCurve([[0.001, 1.6], [0.07, 1.5], [0.17, 1.28], [0.27, 0.85], [0.33, 0.3], [0.31, -0.25], [0.24, -0.75], [0.15, -1.15], [0.08, -1.42], [0.05, -1.6]].map(q => new THREE.Vector2(q[0], q[1]))).getPoints(28);
+  const body = new THREE.LatheGeometry(prof, 18); body.rotateZ(-Math.PI / 2); body.scale(1, 1, 0.8);
+  for (let i = 0, P = body.attributes.position; i < P.count; i++) { if (P.getY(i) < 0) P.setY(i, P.getY(i) * 0.82); if (P.getX(i) > 1.1) P.setY(i, P.getY(i) - (P.getX(i) - 1.1) * 0.12); }   // flat belly, slightly drooped snout
+  push(body, null);
+  const fin = (pts, thick) => { const g = new THREE.ExtrudeGeometry(new THREE.Shape(pts.map(q => new THREE.Vector2(q[0], q[1]))), { depth: thick, bevelEnabled: false }); g.translate(0, 0, -thick / 2); return g; };
+  const sweep = [[0.36, 0], [0.12, 0.3], [-0.3, 0.56], [-0.37, 0.5], [-0.24, 0.22], [-0.22, 0]];   // swept triangular fin, leading edge first
+  let g = fin(sweep, 0.05); g.translate(0.12, 0.27, 0); push(g, FIN);                                  // first dorsal
+  g = fin(sweep, 0.03); g.scale(0.3, 0.3, 1); g.translate(-0.95, 0.17, 0); push(g, FIN);               // second dorsal
+  g = fin(sweep, 0.03); g.scale(0.28, -0.28, 1); g.translate(-1.0, -0.14, 0); push(g, FIN);            // anal fin
+  push(fin([[0.08, 0.05], [-0.2, 0.36], [-0.55, 0.68], [-0.62, 0.61], [-0.36, 0.26], [-0.3, 0], [-0.36, -0.22], [-0.42, -0.32], [-0.34, -0.35], [-0.12, -0.18], [0.08, -0.05]], 0.04).translate(-1.55, 0, 0), FIN);   // crescent tail, upper lobe longer
+  for (const sd of [1, -1]) {
+    g = fin(sweep, 0.035); g.scale(1.05, 1.05, 1); g.rotateX(sd * 1.95); g.rotateY(sd * 0.25); g.translate(0.55, -0.13, sd * 0.2); push(g, FIN);    // pectorals, angled out and down
+    g = fin(sweep, 0.03); g.scale(0.34, 0.34, 1); g.rotateX(sd * 2.1); g.translate(-0.55, -0.16, sd * 0.13); push(g, FIN);                          // pelvics
+    push(new THREE.SphereGeometry(0.026, 8, 6).translate(1.27, 0.03, sd * 0.125), EYE);
+  }
+  return THREE.BufferGeometryUtils.mergeBufferGeometries(parts, false);
+}
+{
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, side: THREE.DoubleSide }), base = sharkGeometry();
+  const loop = pts => { const P = pts.map(q => V2(q[0], q[1])), len = P.map((a, i) => a.distanceTo(P[(i + 1) % P.length])); return { P, len, total: len.reduce((a, b) => a + b, 0) }; };
+  const street = loop([[-20, -16.6], [28, -16.6], [31, -14.2], [28, -11.8], [-20, -11.8], [-23, -14.2]]);
+  const lot = loop([[-4.4, -10.4], [15.6, -10.4], [15.0, 20], [14.6, 35.2], [-3.4, 32.2], [-3.9, 12]]);
+  for (const [path, phase] of [[street, 0], [street, 0.5], [lot, 0.05], [lot, 0.4], [lot, 0.72]]) {
+    const geo = base.clone(), m = new THREE.Mesh(geo, mat), g = new THREE.Group(); m.castShadow = true; m.frustumCulled = false; g.add(m); g.scale.setScalar(0.88); G.sharks.add(g);
+    SHARKS.push({ g, geo, rest: Float32Array.from(geo.attributes.position.array), path, s: phase * path.total, x: null, y: 0, h: 0, v: 1.7, mode: 'patrol', timer: 0, wait: 6 + Math.random() * 14, hitWait: 0, ph: Math.random() * 6, swim: 0 });
+  }
+  G.sharks.visible = false;
+}
+const pathPoint = (path, s) => { let d = ((s % path.total) + path.total) % path.total, i = 0; while (d > path.len[i]) { d -= path.len[i]; i++; } return path.P[i].clone().lerp(path.P[(i + 1) % path.P.length], d / path.len[i]); };
+const inLot = (X, Y) => { // plan metres; even-odd test against the lot outline
+  let inside = false;
+  for (let i = 0, j = LOT.length - 1; i < LOT.length; j = i++) { const a = LOT[i], b = LOT[j]; if ((a[1] / 1000 > Y) !== (b[1] / 1000 > Y) && X < (b[0] - a[0]) / 1000 * (Y - a[1] / 1000) / ((b[1] - a[1]) / 1000) + a[0] / 1000) inside = !inside; }
+  return inside;
+};
+function updateSharks(dt, t) {
+  const B = BOAT, bfx = Math.cos(B.h), bfy = Math.sin(B.h), boatUp = G.boat.visible;
+  for (const k of SHARKS) {
+    if (k.x === null) { const q = pathPoint(k.path, k.s), q2 = pathPoint(k.path, k.s + 1); k.x = q.x; k.y = q.y; k.h = Math.atan2(q2.y - q.y, q2.x - q.x); }
+    k.wait -= dt; k.hitWait -= dt;
+    const toBoat = Math.hypot(B.x - k.x, B.y - k.y);
+    // what it is heading for
+    let tx, ty, want, turn;
+    const blocked = () => { ray.set(new THREE.Vector3(k.x, 0.6, -k.y), new THREE.Vector3(Math.cos(k.h), 0, -Math.sin(k.h))); ray.near = 0; ray.far = 2.8; return ray.intersectObjects(collidables(), false).length > 0; };   // 0.6 m up: the low front fence counts too
+    if (k.mode === 'patrol') {
+      const carrot = pathPoint(k.path, k.s + 4); if (Math.hypot(carrot.x - k.x, carrot.y - k.y) < 9) k.s += 1.9 * dt;   // the lead point waits if the shark has strayed
+      tx = carrot.x; ty = carrot.y; want = 1.7; turn = 1.0;
+      if (boatUp && k.wait <= 0 && toBoat < 18) k.mode = 'charge';
+    } else if (k.mode === 'charge') {
+      tx = B.x; ty = B.y; want = 4.4; turn = 1.9;
+      if (!boatUp || toBoat > 30 || blocked()) { k.mode = 'sheer'; k.timer = 2.5; }   // a fence or wall in the way: give up
+    } else { // sheer away, then drift back to the patrol line
+      tx = k.x + (k.x - B.x) * 5; ty = k.y + (k.y - B.y) * 5; want = 3.0; turn = 1.6; k.timer -= dt;
+      if (blocked()) { k.h += 2.6; k.v *= 0.4; }   // never through a fence or wall
+      if (k.timer <= 0) { k.mode = 'patrol'; k.wait = 10 + Math.random() * 16; }
+    }
+    let dh = Math.atan2(ty - k.y, tx - k.x) - k.h; dh = Math.atan2(Math.sin(dh), Math.cos(dh));
+    k.h += THREE.MathUtils.clamp(dh, -turn * dt, turn * dt); k.v += (want - k.v) * (1 - Math.exp(-dt * 1.5));
+    let fx = Math.cos(k.h), fy = Math.sin(k.h);
+    const st = k.v * dt;
+    if (!inLot(k.x, k.y) && (inLot(k.x + fx * st, k.y + fy * st) || inLot(k.x + fx * (st + 0.8), k.y + fy * (st + 0.8)) || inLot(k.x + fx * (st + 1.6), k.y + fy * (st + 1.6)))) { // the lot is out of bounds (the driveway gap included): turn back
+      k.h += 2.6; k.v *= 0.4; fx = Math.cos(k.h); fy = Math.sin(k.h); if (k.mode !== 'patrol') { k.mode = 'sheer'; k.timer = 2.5; }
+    } else { k.x += fx * k.v * dt; k.y += fy * k.v * dt; }
+    // bump: the snout meets the hull (tested in the boat's own frame)
+    if (boatUp && k.hitWait <= 0) {
+      const nx = k.x + fx * 1.4 - B.x, ny = k.y + fy * 1.4 - B.y, lx = nx * bfx + ny * bfy, ls = ny * bfx - nx * bfy;
+      if (Math.abs(lx) < 3.1 && Math.abs(ls) < 1.25) {
+        B.dx += fx * k.v * 0.5; B.dy += fy * k.v * 0.5;                                  // shove
+        B.w += lx * (fy * bfx - fx * bfy) * 0.07 * k.v;                                  // spin, more for a hit near the bow or stern
+        B.kick += (ls > 0 ? 1 : -1) * 0.045 * k.v;                                       // roll away from the side that was hit
+        k.mode = 'sheer'; k.timer = 3.5; k.hitWait = 2.5; k.v *= 0.3; k.h += (Math.random() < 0.5 ? 1 : -1) * 1.9;
+      }
+    }
+    // swim: a wave travelling down the body, growing towards the tail, beating faster with speed
+    k.swim += dt * (2.2 + k.v * 1.6);
+    const P = k.geo.attributes.position, R = k.rest;
+    for (let i = 0; i < P.count; i++) { const x = R[i * 3], a = Math.max(0, 0.9 - x) / 2.5; P.setZ(i, R[i * 3 + 2] + (0.015 + 0.26 * a * a) * Math.sin(1.9 * x + k.swim + k.ph)); }
+    P.needsUpdate = true;
+    k.g.rotation.y = k.h + Math.sin(k.swim + k.ph - 1.2) * 0.05;
+    k.g.position.set(k.x, FLOOD_Y + waveH(k.x, k.y, t) - 0.43, -k.y);
+  }
+}
+function updateFlood(dt, t) { FLOOD.uTime.value = t; if (G.boat.visible) updateBoat(dt, t); if (G.sharks.visible) updateSharks(dt, t); }
+function showLayer(k, v) { G[k].visible = v; const cb = document.querySelector(`#layers input[data-k="${k}"]`); if (cb) cb.checked = v; }
+function setFloodFun(on) { // off: flat plane at RL 4.10, no boat, no sharks
+  FLOOD.fun = on; FLOOD.uAmp.value = on ? 1 : 0;
+  if (!on && BOAT.on) exitBoat();
+  if (on) showLayer('flood', true);
+  showLayer('boat', on); showLayer('sharks', on);
+  document.getElementById('floodFun').textContent = `Flood waves, boat & sharks: ${on ? 'on' : 'off'}`;
+}
+function enterBoat() {
+  if (BOAT.on) return; if (WALK.on) exitWalk();
+  if (!FLOOD.fun) setFloodFun(true);
+  showLayer('flood', true); showLayer('boat', true);
+  BOAT.look.yaw = BOAT.look.pitch = 0; BOAT.look.held = false;
+  BOAT.on = true; BOAT.saved = { p: camera.position.clone(), t: controls.target.clone() }; controls.enabled = false; camTarget = null; WALK.keys = {};
+  document.getElementById('boatHint').style.display = 'block'; document.getElementById('boatBtn').textContent = 'Leave the boat (B)';
+}
+function boatView(fpv) { BOAT.fpv = fpv; BOAT.look.yaw = BOAT.look.pitch = 0; document.getElementById('boatView').textContent = fpv ? 'third-person view (V)' : 'first-person view (V)'; }
+// look around from the boat: drag with the mouse; let go and the view swings back to dead ahead
+canvas.addEventListener('pointerdown', e => { if (BOAT.on) { BOAT.look.held = true; BOAT.look.px = e.clientX; BOAT.look.py = e.clientY; } });
+window.addEventListener('pointerup', () => { BOAT.look.held = false; });
+window.addEventListener('pointermove', e => {
+  const L = BOAT.look; if (!BOAT.on || !L.held) return;
+  L.yaw = THREE.MathUtils.clamp(L.yaw - (e.clientX - L.px) * 0.005, -2.7, 2.7); L.pitch = THREE.MathUtils.clamp(L.pitch - (e.clientY - L.py) * 0.004, -0.9, 0.7);
+  L.px = e.clientX; L.py = e.clientY;
+});
+function exitBoat() {
+  if (!BOAT.on) return; BOAT.on = false; BOAT.v = 0;
+  for (const m of BOAT.head) m.visible = true; BOAT.steer = BOAT.thr = 0; BOAT.look.held = false;
+  camera.rotation.set(0, 0, 0, 'XYZ'); camera.position.copy(BOAT.saved.p); controls.target.copy(BOAT.saved.t); camera.lookAt(controls.target); controls.enabled = true;
+  document.getElementById('boatHint').style.display = 'none'; document.getElementById('boatBtn').textContent = 'Drive the boat (B)';
 }
 
 /* =========================================================================
@@ -1285,16 +1637,16 @@ for (const [k, name, sw] of LAYERS) {
   l.querySelector('input').addEventListener('change', e => { G[k].visible = e.target.checked; });
   layersEl.appendChild(l);
 }
-function setLayers(on) { for (const [k] of LAYERS) { const v = on.includes(k); G[k].visible = v; layersEl.querySelector(`input[data-k="${k}"]`).checked = v; } }
-const ALL = LAYERS.map(l => l[0]).filter(k => k !== 'flood');
+function setLayers(on) { for (const [k] of LAYERS) { const v = on.includes(k) && (FLOOD.fun || (k !== 'boat' && k !== 'sharks')); G[k].visible = v; layersEl.querySelector(`input[data-k="${k}"]`).checked = v; } }
+const ALL = LAYERS.map(l => l[0]).filter(k => !['flood', 'boat', 'sharks'].includes(k));
 const PRESETS = {
   'Everything': ALL,
   'Exterior': ['site', 'fences', 'sheds', 'floor', 'extWalls', 'glazing', 'roofMain', 'roofAdd', 'awnings', 'carport', 'balcony', 'screens', 'subfloor', 'footings', 'slats', 'labels'],
   'No roof': ['site', 'fences', 'sheds', 'floor', 'extWalls', 'intWalls', 'glazing', 'awnings', 'carport', 'balcony', 'screens', 'subfloor', 'footings', 'slats', 'labels'],
   'Interior plan': ['floor', 'extWalls', 'intWalls', 'glazing', 'balcony', 'labels'],
   'Structure': ['floor', 'subfloor', 'footings', 'balcony', 'carport', 'awnings', 'labels'],
-  'Stormwater': ['site', 'fences', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'awnings', 'carport', 'stormwater', 'labels'],
-  'Flood check': ['site', 'fences', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'balcony', 'carport', 'subfloor', 'flood', 'labels'],
+  'Stormwater': ['site', 'fences', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'awnings', 'carport', 'stormwater', 'dimensions', 'labels'],
+  'Flood check': ['site', 'fences', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'balcony', 'carport', 'subfloor', 'flood', 'boat', 'sharks', 'labels'],
 };
 const presetsEl = document.getElementById('presets');
 for (const [name, keys] of Object.entries(PRESETS)) { const b = document.createElement('button'); b.textContent = name; b.onclick = () => setLayers(keys); presetsEl.appendChild(b); }
@@ -1376,6 +1728,7 @@ function collidables() {
 }
 function enterWalk() {
   if (WALK.on) return;
+  if (BOAT.on) exitBoat();
   WALK.on = true; WALK.saved = { p: camera.position.clone(), t: controls.target.clone() };
   controls.enabled = false; camTarget = null;
   const s = SPAWNS[spawnEl.value] || SPAWNS.entry;
@@ -1399,6 +1752,9 @@ function exitWalk() {
   controls.enabled = true; hud.style.display = 'none'; walkBtn.textContent = 'Enter walk mode (F)';
 }
 walkBtn.addEventListener('click', () => WALK.on ? exitWalk() : enterWalk());
+document.getElementById('boatBtn').addEventListener('click', () => BOAT.on ? exitBoat() : enterBoat());
+document.getElementById('floodFun').addEventListener('click', () => setFloodFun(!FLOOD.fun));
+document.getElementById('boatView').addEventListener('click', () => boatView(!BOAT.fpv));
 document.getElementById('toggleUI').addEventListener('click', () => document.body.classList.toggle('menuHidden'));
 canvas.addEventListener('click', () => { if (WALK.on && document.pointerLockElement !== canvas) lockPointer(); });
 document.addEventListener('mousemove', e => {
@@ -1413,6 +1769,9 @@ window.addEventListener('pointermove', e => { if (!dragLook || !WALK.on) return;
 window.addEventListener('keydown', e => {
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
   if (e.code === 'KeyF') { WALK.on ? exitWalk() : enterWalk(); return; }
+  if (e.code === 'KeyB') { BOAT.on ? exitBoat() : enterBoat(); return; }
+  if (e.code === 'Escape' && BOAT.on) { exitBoat(); return; }
+  if (e.code === 'KeyV' && BOAT.on) { boatView(!BOAT.fpv); return; }
   if (e.code === 'KeyM') { document.body.classList.toggle('menuHidden'); return; }
   WALK.keys[e.code] = true;
   if (WALK.on && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -1489,10 +1848,12 @@ function animate() {
   requestAnimationFrame(animate);
   const now = performance.now(), dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
   updateDoors(dt, WALK.on ? WALK.pos : null);
+  updateFlood(dt, now / 1000);
   // depth precision: push the near plane out as the camera pulls back (a fixed 0.1 m near plane makes distant surfaces shimmer)
-  const near = WALK.on ? 0.1 : THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.012, 0.1, 1.5);
+  const near = WALK.on || BOAT.on ? 0.1 : THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.012, 0.1, 1.5);
   if (Math.abs(near - camera.near) > camera.near * 0.05) { camera.near = near; camera.updateProjectionMatrix(); }
   if (WALK.on) { walkUpdate(dt); camera.getWorldDirection(camDir); needle.style.transform = `rotate(${-Math.atan2(camDir.x, -camDir.z)}rad) translateY(-20px)`; renderer.render(scene, camera); return; }
+  if (BOAT.on) { camera.getWorldDirection(camDir); needle.style.transform = `rotate(${-Math.atan2(camDir.x, -camDir.z)}rad) translateY(-20px)`; renderer.render(scene, camera); return; }
   if (camTarget) {
     const t = Math.min(1, (performance.now() - camTarget.start) / camTarget.dur), s = t * t * (3 - 2 * t);
     camera.position.lerpVectors(camTarget.p0, camTarget.p1, s); controls.target.lerpVectors(camTarget.t0, camTarget.t1, s);
