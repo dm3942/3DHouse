@@ -60,6 +60,7 @@
   <div id="layers"></div>
   <h2>Options</h2>
   <div class="opt"><input type="checkbox" id="xray"><label for="xray">X‑ray external walls</label></div>
+  <div class="opt"><input type="checkbox" id="xraySite"><label for="xraySite">X‑ray site (ground, street, driveway, fences)</label></div>
   <div class="opt"><input type="checkbox" id="cutOn"><label for="cutOn" style="white-space:nowrap">Section cut at</label><input type="range" id="cut" min="0.3" max="9" step="0.05" value="4.2"><span class="val" id="cutVal">4.20 m</span></div>
   <div class="opt"><input type="checkbox" id="shadows" checked><label for="shadows">Shadows</label></div>
   <div class="opt"><label style="white-space:nowrap">Month (Jan → Dec)</label><input type="range" id="sun" min="0" max="1" step="0.002" value="0.45"><span class="val" id="seasonVal"></span></div>
@@ -229,6 +230,7 @@ const MAT = {
   flood: new THREE.MeshStandardMaterial({ color: 0x2f7fd6, transparent: true, opacity: 0.35, roughness: 0.2, side: THREE.DoubleSide, depthWrite: false }),
   swale: std({ color: 0x55803a, roughness: 1 }),
   dish: std({ color: 0xc2c0b6, roughness: 0.9 }),
+  soil: std({ color: 0x6b5a45, roughness: 1, side: THREE.DoubleSide }),
   fence: std({ map: TEX.paling, roughness: 0.9 }),
   slatsH: std({ map: TEX.slatsH, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.85 }),
   slatsV: std({ map: TEX.slatsV, transparent: true, alphaTest: 0.5, side: THREE.DoubleSide, roughness: 0.85 }),
@@ -559,7 +561,8 @@ function label(group, text, X, Y, h, size = 0.55, color = '#1e2328', bg = 'rgba(
    Layer groups
    ------------------------------------------------------------------------ */
 const LAYERS = [
-  ['site', 'Site: ground, street, driveway, fences', '#7d9a55'],
+  ['site', 'Site: ground, street, driveway', '#7d9a55'],
+  ['fences', 'Fences: boundary & front', '#4d6a54'],
   ['sheds', 'Existing sheds & rear awning', '#d6d2c6'],
   ['floor', 'Floor (FFL 5.80)', '#c9a071'],
   ['extWalls', 'External walls (timber cladding)', '#d9d2bf'],
@@ -586,17 +589,68 @@ for (const [k] of LAYERS) { G[k] = new THREE.Group(); G[k].name = k; scene.add(G
 /* =========================================================================
    SITE
    ========================================================================= */
+const LOT = [[-1700, -8100], [13000, -8100], [12300, 32500], [-800, 30000]];   // SW, SE, NE, NW (mm)
+const V2 = (x, y) => new THREE.Vector2(x, y);
+function offsetPath(pts, d) { // open polyline (Vector2, mm) offset to its left by d, mitred corners
+  return pts.map((b, i) => {
+    const d1 = b.clone().sub(pts[Math.max(i - 1, 0)]), d2 = pts[Math.min(i + 1, pts.length - 1)].clone().sub(b);
+    if (i === 0) d1.copy(d2); if (i === pts.length - 1) d2.copy(d1);
+    d1.normalize(); d2.normalize();
+    const n1 = V2(-d1.y, d1.x), m = n1.clone().add(V2(-d2.y, d2.x)).normalize();
+    return b.clone().addScaledVector(m, d / m.dot(n1));
+  });
+}
+/* Rear dish drains (SW01): 345 wide spoon drain just inside the west, rear and east boundaries, from PIT 5 round
+   both back corners to PIT 4. Centreline 320 mm inside the boundary; pits centred on it. */
+const REAR_DRAIN = (() => {
+  const [A, D, C, B] = LOT.map(p => V2(p[0], p[1]));
+  const cl = offsetPath([A, B, C, D], -320), at = (p, q, Y) => p.clone().lerp(q, (Y - p.y) / (q.y - p.y));
+  const P5 = at(cl[0], cl[1], 25050), P4 = at(cl[3], cl[2], 25430), NW = cl[1], NE = cl[2];
+  const u5 = NW.clone().sub(P5).normalize(), u4 = P4.clone().sub(NE).normalize();
+  // levels are the TOP EDGES of the drain units: equal to the grate RL at each pit, rising at 1 % to the back corner
+  const HW = 172.5, PH = 290, EDGE = 275, FALL = 0.01, RL5 = 2.85, RL4 = 2.62;
+  const rlNW = RL5 + FALL * (NW.distanceTo(P5) - EDGE) / 1000, rlNE = RL4 + FALL * (NE.distanceTo(P4) - EDGE) / 1000;
+  return { P5, P4, NW, NE, u5, u4, HW, PH, EDGE, RL5, RL4, rlNW, rlNE };
+})();
 {
   const g = G.site, mg = new Merger(g);
-  // lot 59 DP19759 (~534 m²): front boundary Y=-8100, rear boundary skewed
-  const lot = [[-1700, -8100], [13000, -8100], [12300, 32500], [-800, 30000]];
-  const shape = new THREE.Shape(lot.map(p => new THREE.Vector2(mm(p[0]), mm(p[1]))));
-  const lotMesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), MAT.grass);
-  lotMesh.rotation.x = -Math.PI / 2; lotMesh.position.y = 0.0; lotMesh.receiveShadow = true; g.add(lotMesh);
-  // surroundings
-  const around = new THREE.Mesh(new THREE.PlaneGeometry(160, 160), MAT.grass2);
-  around.rotation.x = -Math.PI / 2; around.position.set(mm(5825), -0.015, -mm(10000)); around.receiveShadow = true;
-  around.geometry.attributes.uv.array.forEach((v, i, a) => a[i] = v * 80); g.add(around);
+  // lot 59 DP19759 (~534 m²): front boundary Y=-8100, rear boundary skewed.
+  /* The model ground is flat at RL 2.90, but the rear dish drains and PIT 4 / PIT 5 are lower (down to RL 2.62).
+     So the ground is graded: a band following the drain route sits at the drain's top-edge level beside the drain and
+     eases back up to RL 2.90 over 2.5 m into the yard (and over 3 m south of each pit). The drain itself lies in a
+     sunk strip in that band. Cross-sections are taken along the route; rows run across it from the boundary inwards. */
+  const v2m = p => new THREE.Vector2(mm(p.x ?? p[0]), mm(p.y ?? p[1])), flat = (m, y) => { m.rotation.x = -Math.PI / 2; m.position.y = y; g.add(m); return m; };
+  const RD = REAR_DRAIN, TAIL = 3000, GRADE = 2500, SUNK = 0.25, STEPS = 8, along = (p, u, d) => p.clone().addScaledVector(u, d);
+  const Q = [along(RD.P5, RD.u5, -TAIL), along(RD.P5, RD.u5, -RD.PH), along(RD.P5, RD.u5, RD.PH), RD.NW, RD.NE, along(RD.P4, RD.u4, -RD.PH), along(RD.P4, RD.u4, RD.PH), along(RD.P4, RD.u4, TAIL)];
+  const MIT = offsetPath(Q, 1).map((q, i) => q.sub(Q[i]));   // displacement per mm of offset to the left (= towards the boundary)
+  const y5 = rl(RD.RL5), y4 = rl(RD.RL4), yNW = rl(RD.rlNW), yNE = rl(RD.rlNE);
+  // sections: [route point, half-width of the sunk strip (mm), ground level beside the drain (m), strip sunk?]
+  const SEC = [[0, RD.HW, 0, 0], [1, RD.HW, y5, 0], [1, RD.PH, y5, 0], [1, RD.PH, y5, 1], [2, RD.PH, y5, 1], [2, RD.HW, y5, 1], [3, RD.HW, yNW, 1],
+    [4, RD.HW, yNE, 1], [5, RD.HW, y4, 1], [5, RD.PH, y4, 1], [6, RD.PH, y4, 1], [6, RD.PH, y4, 0], [6, RD.HW, y4, 0], [7, RD.HW, 0, 0]];
+  const rowsOf = ([qi, w, L, sunk]) => { // [offset mm, height m] from the boundary inwards
+    const r = [[320, L], [w, L], [w, L - sunk * SUNK], [-w, L - sunk * SUNK], [-w, L]];
+    for (let k = 1; k <= STEPS; k++) { const t = k / STEPS; r.push([-(w + GRADE * t), L * (1 - t * t * (3 - 2 * t))]); }
+    return r.map(([d, h]) => { const q = Q[qi].clone().addScaledVector(MIT[qi], d); return { x: q.x, y: q.y, h }; });
+  };
+  const GRID = SEC.map(rowsOf), NR = GRID[0].length, tri = { grass: [], soil: [] };
+  for (let j = 0; j < GRID.length - 1; j++) for (let r = 0; r < NR - 1; r++) {
+    const a = GRID[j][r], b = GRID[j + 1][r], c = GRID[j + 1][r + 1], d = GRID[j][r + 1];
+    (r >= 1 && r <= 3 && SEC[j][3] && SEC[j + 1][3] ? tri.soil : tri.grass).push(a, c, b, a, d, c);   // bare soil only in the sunk strip under the drain
+  }
+  for (const [k, mat] of [['grass', MAT.grass], ['soil', MAT.soil]]) {
+    const geo = new THREE.BufferGeometry(), pos = [], uv = [];
+    for (const q of tri[k]) { pos.push(mm(q.x), q.h, -mm(q.y)); uv.push(mm(q.x), mm(q.y)); }
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2)); geo.computeVertexNormals();
+    const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; g.add(m);
+  }
+  // the rest of the lot stays flat: the lot outline with the graded band notched out of its rear
+  const flatLot = [LOT[0], LOT[1], GRID[GRID.length - 1][0]];
+  for (let j = GRID.length - 1; j >= 0; j--) { const q = GRID[j][NR - 1], l = flatLot[flatLot.length - 1]; if (Math.hypot(q.x - (l.x ?? l[0]), q.y - (l.y ?? l[1])) > 1) flatLot.push(q); }
+  flatLot.push(GRID[0][0]);
+  flat(new THREE.Mesh(new THREE.ShapeGeometry(new THREE.Shape(flatLot.map(v2m))), MAT.grass), 0).receiveShadow = true;
+  // surroundings: a ring around the lot
+  const ring = new THREE.Shape([[-74, -70], [86, -70], [86, 90], [-74, 90]].map(q => new THREE.Vector2(q[0], q[1]))); ring.holes.push(new THREE.Path(LOT.map(v2m)));
+  flat(new THREE.Mesh(new THREE.ShapeGeometry(ring), MAT.grass2), -0.015).receiveShadow = true;
   // street (south): footpath/verge, kerb, road
   mg.box(MAT.concrete, -60000, 80000, -9800, -8100, -0.01, 0.03);
   mg.box(MAT.kerb, -60000, 80000, -9950, -9800, -0.12, 0.15);
@@ -606,18 +660,19 @@ for (const [k] of LAYERS) { G[k] = new THREE.Group(); G[k].name = k; scene.add(G
   mg.box(MAT.concrete, -300, 3300, -9800, -5500, 0.0, 0.04);
   mg.box(MAT.concrete, -300, 3300, -5500, -3100, 0.0, 0.04);
   // boundary fences 1.8 m (metal/timber) – east, west, rear
+  const fm = new Merger(G.fences);   // fences are their own layer
   const fence = (X0, Y0, X1, Y1) => {
     // green Colorbond panel fence with C-section rails and posts
-    mg.bar(MAT.colorbondGreen, W(X0, Y0, 0.9), W(X1, Y1, 0.9), 0.03, 1.8);
-    mg.bar(MAT.colorbondGreen, W(X0, Y0, 1.78), W(X1, Y1, 1.78), 0.07, 0.05); mg.bar(MAT.colorbondGreen, W(X0, Y0, 0.08), W(X1, Y1, 0.08), 0.07, 0.05);
+    fm.bar(MAT.colorbondGreen, W(X0, Y0, 0.7), W(X1, Y1, 0.7), 0.03, 2.2);   // runs 0.4 m below RL 2.90 to meet the graded ground at the rear
+    fm.bar(MAT.colorbondGreen, W(X0, Y0, 1.78), W(X1, Y1, 1.78), 0.07, 0.05); fm.bar(MAT.colorbondGreen, W(X0, Y0, 0.08), W(X1, Y1, 0.08), 0.07, 0.05);
     const L = Math.hypot(X1 - X0, Y1 - Y0), n = Math.ceil(L / 2400);
-    for (let i = 0; i <= n; i++) { const f = i / n; mg.box(MAT.colorbondGreen, X0 + f * (X1 - X0) - 38, X0 + f * (X1 - X0) + 38, Y0 + f * (Y1 - Y0) - 38, Y0 + f * (Y1 - Y0) + 38, 0, 1.85); }
+    for (let i = 0; i <= n; i++) { const f = i / n; fm.box(MAT.colorbondGreen, X0 + f * (X1 - X0) - 38, X0 + f * (X1 - X0) + 38, Y0 + f * (Y1 - Y0) - 38, Y0 + f * (Y1 - Y0) + 38, -0.4, 1.85); }
   };
   fence(-1700, -8100, -800, 30000); fence(13000, -8100, 12300, 32500); fence(-800, 30000, 12300, 32500);
   // low front fence with gate opening at the driveway
-  mg.box(MAT.galv, 3600, 13000, -8130, -8070, 0, 0.9); mg.box(MAT.galv, -1700, -500, -8130, -8070, 0, 0.9);
-  // garden beds (site plan) and a car in the carport space
-  mg.box(MAT.subfloor, 12000, 12900, 400, 4000, 0, 0.18); mg.box(MAT.subfloor, 12000, 12900, 13000, 15800, 0, 0.18);
+  fm.box(MAT.galv, 3600, 13000, -8130, -8070, 0, 0.9); fm.box(MAT.galv, -1700, -500, -8130, -8070, 0, 0.9);
+  fm.finish();
+  // a car in the carport space
   mg.box(MAT.car, 400, 2200, -5300, -1100, 0.35, 0.95); mg.box(MAT.car, 600, 2000, -4300, -1900, 0.95, 1.45); mg.box(MAT.carGlass, 620, 1980, -4200, -2000, 0.98, 1.42);
   for (const [cx, cy] of [[650, -4700], [1950, -4700], [650, -1700], [1950, -1700]]) mg.cyl(MAT.tyre, W(cx, cy - 110, 0.32), W(cx, cy + 110, 0.32), 0.32, 16);
   mg.finish();
@@ -625,21 +680,30 @@ for (const [k] of LAYERS) { G[k] = new THREE.Group(); G[k].name = k; scene.add(G
 /* =========================================================================
    EXISTING SHEDS (rear)
    ========================================================================= */
-function gableBuilding(g, mg, X0, X1, Y0, Y1, zE, zR, matWall, matRoof) {
-  mg.box(matWall, X0, X1, Y0, Y1, 0, zE);
-  const Xc = (X0 + X1) / 2, o = 250;
-  face(g, matRoof, [W(X0 - o, Y0 - o, zE - 0.05), W(X0 - o, Y1 + o, zE - 0.05), W(Xc, Y1 + o, zR), W(Xc, Y0 - o, zR)], UZ);
-  face(g, matRoof, [W(X1 + o, Y1 + o, zE - 0.05), W(X1 + o, Y0 - o, zE - 0.05), W(Xc, Y0 - o, zR), W(Xc, Y1 + o, zR)], UZ);
-  face(g, matWall, [W(X0, Y0, zE), W(X1, Y0, zE), W(Xc, Y0, zR - 0.06)], UX, false);   // gables start at the wall top (no overlap with the wall face)
-  face(g, matWall, [W(X1, Y1, zE), W(X0, Y1, zE), W(Xc, Y1, zR - 0.06)], UX, false);
+/* Shed on a four-sided (not necessarily square) plan, gable roof. P = [SW, SE, NE, NW] in plan mm;
+   ridge 'EW' runs between the west and east walls, 'NS' between the south and north walls. */
+function quadShed(g, P, zE, zR, ridge, matWall, matRoof) {
+  const v = (p, h) => W(p[0], p[1], h), mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+  const c = [0, 1].map(k => (P[0][k] + P[1][k] + P[2][k] + P[3][k]) / 4), out = p => [c[0] + (p[0] - c[0]) * 1.07, c[1] + (p[1] - c[1]) * 1.07];
+  const isEnd = i => (ridge === 'EW') === (i % 2 === 1);   // edge i runs P[i] → P[i+1]: 0 south, 1 east, 2 north, 3 west
+  for (let i = 0; i < 4; i++) {
+    const a = P[i], b = P[(i + 1) % 4], u = W(b[0] - a[0], b[1] - a[1], 0).normalize();
+    face(g, matWall, [v(a, -0.4), v(b, -0.4), v(b, zE), v(a, zE)], u, false);   // walls carry on below RL 2.90: the ground is graded down near the drains
+    if (isEnd(i)) face(g, matWall, [v(a, zE), v(b, zE), v(mid(a, b), zR - 0.06)], u, false);
+    else { // roof plane from this eave up to the ridge
+      const ra = mid(P[(i + 3) % 4], a), rb = mid(b, P[(i + 2) % 4]);
+      face(g, matRoof, [v(out(a), zE - 0.05), v(out(b), zE - 0.05), v(out(rb), zR), v(out(ra), zR)], W(rb[0] - ra[0], rb[1] - ra[1], 0).normalize());
+    }
+  }
 }
 {
   const g = G.sheds, mg = new Merger(g);
-  gableBuilding(g, mg, -300, 3200, 25700, 30300, 2.2, 2.9, MAT.fibro, MAT.roof);          // fibro shed
-  gableBuilding(g, mg, 5800, 9500, 27300, 30500, 2.3, 3.0, MAT.shedMetal, MAT.roof);     // metal shed
+  // footprints from the stormwater plan (SW01/SW02): the fibro shed's east wall follows the skewed rear boundary
+  quadShed(g, [[-380, 25400], [7160, 25580], [6780, 30850], [-240, 29340]], 2.2, 2.9, 'EW', MAT.fibro, MAT.roof);          // fibro shed
+  quadShed(g, [[7260, 25560], [10770, 25640], [10430, 30960], [6880, 30930]], 2.3, 3.0, 'NS', MAT.shedMetal, MAT.roof);    // metal shed
   // rear awning (open roof on posts)
-  face(g, MAT.roof, [W(9000, 21300, 2.5), W(11500, 21300, 2.5), W(11500, 24500, 2.3), W(9000, 24500, 2.3)], UX);
-  for (const [x, y] of [[9100, 21400], [11400, 21400], [9100, 24400], [11400, 24400]]) mg.box(MAT.timber, x - 50, x + 50, y - 50, y + 50, 0, 2.45);
+  face(g, MAT.roof, [W(9530, 21170, 2.5), W(12350, 21400, 2.5), W(12250, 25000, 2.3), W(9350, 24830, 2.3)], UX);
+  for (const [x, y] of [[9630, 21280], [12240, 21500], [12150, 24890], [9460, 24730]]) mg.box(MAT.timber, x - 50, x + 50, y - 50, y + 50, -0.4, 2.3);
   mg.finish();
 }
 
@@ -1129,10 +1193,10 @@ const BRACES = [ // [Y0,X0,Y1,X1]
   const g = G.stormwater, mg = new Merger(g), PIPE_Z = -0.45;
   const dp = (X, Y, zTop) => { mg.cyl(MAT.downpipe, W(X, Y, 0.05), W(X, Y, zTop), 0.05); mg.cyl(MAT.downpipe, W(X, Y, zTop), W(X + (X < 5000 ? 150 : -150), Y, zTop + 0.05), 0.05); mg.cyl(MAT.pipe, W(X, Y, 0.05), W(X, Y, PIPE_Z), 0.05); };
   const pipe = (pts, mat = MAT.pipe, r = 0.05) => { for (let i = 0; i < pts.length - 1; i++) mg.cyl(mat, pts[i], pts[i + 1], r); };
-  const pit = (X, Y, size, grateRL, name, depth) => {
+  const pit = (X, Y, size, grateRL, name, depth, sunk = false) => { // sunk: grate drawn at its true RL even where that is below the flat model ground
     mg.box(MAT.pit, X - size / 2 - 50, X + size / 2 + 50, Y - size / 2 - 50, Y + size / 2 + 50, rl(grateRL) - depth, rl(grateRL) - 0.02);
-    mg.box(MAT.grate, X - size / 2, X + size / 2, Y - size / 2, Y + size / 2, rl(grateRL) - 0.02, Math.max(rl(grateRL), 0.012));
-    label(G.labels, `${name}  grate RL ${grateRL.toFixed(2)}`, X, Y, 1.0, 0.36, '#ffffff', 'rgba(170,40,120,0.85)');
+    mg.box(MAT.grate, X - size / 2, X + size / 2, Y - size / 2, Y + size / 2, rl(grateRL) - 0.02, sunk ? rl(grateRL) : Math.max(rl(grateRL), 0.012));
+    label(G.labels, `${name}  grate RL ${grateRL.toFixed(2)} · base RL ${(grateRL - depth).toFixed(2)}`, X, Y, 1.0, 0.36, '#ffffff', 'rgba(170,40,120,0.85)');
   };
   // downpipes (indicative positions, SW02)
   dp(-400, -4700, rl(5.65) - 0.2); dp(3400, -4900, rl(5.65) - 0.2);     // carport
@@ -1160,22 +1224,48 @@ const BRACES = [ // [Y0,X0,Y1,X1]
   mg.box(MAT.pipe, 3900, 7000, 17940, 18460, rl(2.15), rl(2.15) + 0.41);
   pit(7225, 18200, 450, 2.65, 'PIT 2 (absorption)', 0.60); pit(3775, 18200, 450, 2.65, 'PIT 2A', 0.60);
   for (let k = 0; k < 4; k++) mg.cyl(MAT.pipe, W(3775, 17980 + k * 150, rl(2.15) + 0.1), W(7225, 17980 + k * 150, rl(2.15) + 0.1), 0.045, 8);
-  // PIT 4 & PIT 5 (overland flow from dish drains at rear boundary)
-  pit(11700, 31900, 450, 2.62, 'PIT 4', 0.40); pit(-300, 29500, 450, 2.85, 'PIT 5', 0.40);
-  pipe([W(-300, 29500, PIPE_Z), W(-300, 18200, PIPE_Z), W(3550, 18200, PIPE_Z)]);
-  pipe([W(11700, 31900, PIPE_Z), W(12300, 30000, PIPE_Z), W(12300, 16300, PIPE_Z)]);
-  // dish / spoon drains 345 wide along rear boundary and east boundary
-  mg.bar(MAT.dish, W(-500, 29700, 0.02), W(11900, 32150, 0.02), 0.345, 0.06);
-  mg.bar(MAT.dish, W(11950, 31900, 0.02), W(12250, 20000, 0.02), 0.345, 0.06);
+  // PIT 4 & PIT 5: 450 × 450 × 400D junction pits collecting overland flow from the dish drains (SW01)
+  const { P5, P4, NW, NE, u5, u4, RL5, RL4, rlNW, rlNE, EDGE, HW } = REAR_DRAIN;
+  pit(P4.x, P4.y, 450, RL4, 'PIT 4', 0.40, true); pit(P5.x, P5.y, 450, RL5, 'PIT 5', 0.40, true);
+  pipe([W(P5.x, P5.y, PIPE_Z), W(P5.x, 18200, PIPE_Z), W(3550, 18200, PIPE_Z)]);
+  pipe([W(P4.x, P4.y, PIPE_Z - 0.1), W(12300, 16300, PIPE_Z - 0.1)]);
+  /* dish / spoon drain units (SW01 section): 345 base, 145 high, 225 wide × 116 deep channel, 900 mm long.
+     Levels are the units' top edges: equal to the grate RL at each pit. Each side run falls at 1 % from its back corner
+     down to the grate; the rear run grades between the two corners. */
+  const dish = new THREE.Shape(); dish.moveTo(-0.1725, 0); dish.lineTo(0.1725, 0); dish.lineTo(0.1625, 0.145); dish.lineTo(0.1125, 0.145);
+  dish.absarc(0, 0.1416, 0.1126, 0.03, Math.PI - 0.03, true); dish.lineTo(-0.1625, 0.145); dish.closePath();
+  const TOP = 0.145, UNIT = 0.9; // top edge above the unit's base (m); unit length (m)
+  const lay = (a, b, rlA, rlB) => { // units laid from a to b (plan mm); top-edge RL rlA at a, rlB at b; the last unit is cut to fit
+    const L = a.distanceTo(b) / 1000, at = s => { const q = a.clone().lerp(b, s / L); return W(q.x, q.y, rl(rlA + (rlB - rlA) * s / L) - TOP); };
+    for (let s = 0; s < L - 0.02; s += UNIT) {
+      const len = Math.min(UNIT, L - s), p = at(s), along = at(s + len).sub(p).normalize();
+      const x = new THREE.Vector3().crossVectors(UY, along).normalize(), y = new THREE.Vector3().crossVectors(along, x);
+      const geo = new THREE.ExtrudeGeometry(dish, { depth: len - 0.006, bevelEnabled: false, curveSegments: 14 });
+      mg.add(geo, MAT.dish, p, new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(x, y, along)));
+    }
+  };
+  const ur = NE.clone().sub(NW).normalize();
+  lay(P5.clone().addScaledVector(u5, EDGE), NW.clone().addScaledVector(u5, -HW), RL5, rlNW);     // west run: PIT 5 up to the NW corner
+  lay(P4.clone().addScaledVector(u4, -EDGE), NE.clone().addScaledVector(u4, HW), RL4, rlNE);     // east run: PIT 4 up to the NE corner
+  lay(NW.clone().addScaledVector(ur, -HW), NE.clone().addScaledVector(ur, HW), rlNW, rlNE);      // rear run between the corners
+  // spot levels from the plan: small red disc + number
+  const spotMat = new THREE.MeshBasicMaterial({ color: 0xc40000, toneMapped: false });
+  G.site.updateMatrixWorld(true);
+  const probe = new THREE.Raycaster();
+  for (const [X, Y, t] of [[-300, 21930, '2.80'], [11540, 25910, '2.62'], [11670, 31160, '2.76']]) {
+    probe.set(W(X, Y, 5), new THREE.Vector3(0, -1, 0)); const hit = probe.intersectObjects(G.site.children, false)[0], y0 = hit ? hit.point.y : 0;   // sit on the graded ground
+    const d = new THREE.Mesh(new THREE.CircleGeometry(0.11, 24), spotMat); d.rotation.x = -Math.PI / 2; d.position.copy(W(X, Y, y0 + 0.02)); g.add(d);
+    label(g, t, X + 420, Y, y0 + 0.3, 0.3, '#e0202a', 'rgba(255,255,255,0.9)');
+  }
   // 400 W turfed swale adjacent to east boundary
-  mg.bar(MAT.swale, W(12700, -7500, 0.015), W(12300, 16000, 0.015), 0.40, 0.03);
+  mg.bar(MAT.swale, W(12572, 0, 0.015), W(12300, 16000, 0.015), 0.40, 0.03);   // from PIT 3 forward, stopping level with the front wall of the house
   // kerb outlet / existing stormwater pipe along the street
   mg.cyl(MAT.pipe, W(-20000, -10400, -0.6), W(40000, -10400, -0.6), 0.075, 10);
   mg.finish();
   label(G.labels, 'ABSORPTION TRENCH 3000 × 510 × 410', 5500, 18200, 0.9, 0.36, '#ffffff', 'rgba(170,40,120,0.85)');
   label(G.labels, 'KERB OUTLET', 11500, -10400, 0.6, 0.32, '#ffffff', 'rgba(170,40,120,0.85)');
   label(G.labels, 'TURFED SWALE 400W', 12500, 5000, 0.5, 0.32, '#ffffff', 'rgba(60,110,40,0.85)');
-  label(G.labels, 'DISH DRAIN', 6000, 31200, 0.5, 0.32, '#ffffff', 'rgba(60,60,60,0.8)');
+  label(G.labels, 'DISH DRAIN', 5750, 31700, 0.5, 0.32, '#ffffff', 'rgba(60,60,60,0.8)');
 }
 /* defined flood event level */
 {
@@ -1199,12 +1289,12 @@ function setLayers(on) { for (const [k] of LAYERS) { const v = on.includes(k); G
 const ALL = LAYERS.map(l => l[0]).filter(k => k !== 'flood');
 const PRESETS = {
   'Everything': ALL,
-  'Exterior': ['site', 'sheds', 'floor', 'extWalls', 'glazing', 'roofMain', 'roofAdd', 'awnings', 'carport', 'balcony', 'screens', 'subfloor', 'footings', 'slats', 'labels'],
-  'No roof': ['site', 'sheds', 'floor', 'extWalls', 'intWalls', 'glazing', 'awnings', 'carport', 'balcony', 'screens', 'subfloor', 'footings', 'slats', 'labels'],
+  'Exterior': ['site', 'fences', 'sheds', 'floor', 'extWalls', 'glazing', 'roofMain', 'roofAdd', 'awnings', 'carport', 'balcony', 'screens', 'subfloor', 'footings', 'slats', 'labels'],
+  'No roof': ['site', 'fences', 'sheds', 'floor', 'extWalls', 'intWalls', 'glazing', 'awnings', 'carport', 'balcony', 'screens', 'subfloor', 'footings', 'slats', 'labels'],
   'Interior plan': ['floor', 'extWalls', 'intWalls', 'glazing', 'balcony', 'labels'],
   'Structure': ['floor', 'subfloor', 'footings', 'balcony', 'carport', 'awnings', 'labels'],
-  'Stormwater': ['site', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'awnings', 'carport', 'stormwater', 'labels'],
-  'Flood check': ['site', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'balcony', 'carport', 'subfloor', 'flood', 'labels'],
+  'Stormwater': ['site', 'fences', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'awnings', 'carport', 'stormwater', 'labels'],
+  'Flood check': ['site', 'fences', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'balcony', 'carport', 'subfloor', 'flood', 'labels'],
 };
 const presetsEl = document.getElementById('presets');
 for (const [name, keys] of Object.entries(PRESETS)) { const b = document.createElement('button'); b.textContent = name; b.onclick = () => setLayers(keys); presetsEl.appendChild(b); }
@@ -1232,6 +1322,18 @@ camera.position.copy(VIEWS['SE aerial'][0]); controls.target.copy(CENTER);
 document.getElementById('xray').addEventListener('change', e => {
   for (const m of [MAT.weatherboard, MAT.lining]) { m.transparent = e.target.checked; m.opacity = e.target.checked ? 0.28 : 1; m.depthWrite = !e.target.checked; m.needsUpdate = true; }
 });
+// X-ray site: every mesh in the site and fences layers swaps to a see-through copy of its material (materials are shared with other layers, so they are cloned, not edited)
+const siteGhost = new Map();
+document.getElementById('xraySite').addEventListener('change', e => {
+  for (const layer of [G.site, G.fences]) layer.traverse(o => {
+    if (!o.isMesh || o.material === MAT.collide) return;
+    if (e.target.checked) {
+      const src = o.material;
+      if (!siteGhost.has(src)) { const m = src.clone(); m.transparent = true; m.opacity = 0.25; m.depthWrite = false; siteGhost.set(src, m); }
+      o.userData.solidMat = src; o.material = siteGhost.get(src); o.userData.castWas = o.castShadow; o.castShadow = false;
+    } else if (o.userData.solidMat) { o.material = o.userData.solidMat; o.castShadow = o.userData.castWas; delete o.userData.solidMat; }
+  });
+});
 const cutPlane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 4.2);
 const cutEl = document.getElementById('cut'), cutOn = document.getElementById('cutOn'), cutVal = document.getElementById('cutVal');
 function updateCut() { cutPlane.constant = +cutEl.value; cutVal.textContent = (+cutEl.value).toFixed(2) + ' m'; renderer.clippingPlanes = cutOn.checked ? [cutPlane] : []; }
@@ -1255,7 +1357,7 @@ document.getElementById('sun').addEventListener('input', sunFromUI); hourEl.addE
    ========================================================================= */
 const WALK = { on: false, pos: new THREE.Vector3(), vy: 0, yaw: 0, pitch: 0, onGround: false, keys: {}, saved: null };
 const P_R = 0.20, P_EYE = 1.65, P_STEP = 0.30, GRAV = 9.81, WALK_SPEED = 1.6, RUN_SPEED = 3.4, JUMP_V = 3.0;
-const COLLIDE_GROUPS = ['floor', 'extWalls', 'intWalls', 'glazing', 'balcony', 'screens', 'subfloor', 'carport', 'awnings', 'site', 'sheds', 'slats', 'roofMain', 'roofAdd'];
+const COLLIDE_GROUPS = ['floor', 'extWalls', 'intWalls', 'glazing', 'balcony', 'screens', 'subfloor', 'carport', 'awnings', 'site', 'fences', 'sheds', 'slats', 'roofMain', 'roofAdd'];
 const PASS_MATS = new Set([MAT.door, MAT.doorInt, MAT.doorFront, MAT.doorPanel, MAT.glass, ...MAT.doorGlass]);
 const SPAWNS = { // X, Y (mm), feet height (m), yaw (0 = facing north)
   entry: [4300, -1700, FFL, 0], deck: [10450, 14450, FFL, Math.PI / 2], family: [4000, 10400, FFL, -Math.PI / 2],
