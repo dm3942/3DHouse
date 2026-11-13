@@ -49,6 +49,7 @@
   <div class="row">
     <button id="walkBtn">Enter walk mode (F)</button>
     <button id="boatBtn">Drive the boat (B)</button>
+    <button id="carBtn">Drive the ute (C)</button>
     <select id="spawn">
       <option value="entry">Start: front entry (balcony)</option>
       <option value="deck">Start: north deck stair</option>
@@ -74,7 +75,7 @@
 </div>
 <div id="compass"><span id="needle">N</span></div>
 <div id="hud"><div id="cross"></div><div id="walkHint"><b>WASD</b> move · <b>←/→</b> turn · <b>Q/E</b> look up/down · <b>Shift</b> run · <b>Space</b> jump · <b>wheel</b> or <b>+/−</b> field of view · <b>F</b>/Esc exit · <span id="walkPos"></span></div></div>
-<div id="boatHint"><b>W/S</b> throttle · <b>A/D</b> steer · <b>drag</b> to look around · <button id="boatView">third-person view (V)</button> · <b>B</b> or Esc leaves the boat</div>
+<div id="boatHint"><b>W/S</b> throttle · <b>A/D</b> steer · <b>drag</b> to look around · <button id="boatView">third-person view (V)</button> · <b>Esc</b> to get out</div>
 <div id="hint">Drag to orbit · right‑drag / shift‑drag to pan · wheel to zoom.<br>World axes: X east, north is towards −Z. Ground RL 2.90 = 0 m.</div>
 
 <script src="lib/three.min.js"></script>
@@ -586,6 +587,7 @@ const LAYERS = [
   ['roofAdd', 'Addition roof (skillion)', '#a7adb2'],
   ['awnings', 'Verandah awnings (new)', '#b9bfc4'],
   ['carport', 'Carport (new)', '#8c6a46'],
+  ['car', 'Ute (drivable)', '#f4f5f6'],
   ['balcony', 'Balcony, deck, stairs & balustrades (new)', '#9a6a3c'],
   ['screens', 'Privacy screens 1800 (new)', '#8a6a46'],
   ['subfloor', 'Sub-floor steel: SHS columns, beams, bracing', '#3f454c'],
@@ -687,9 +689,6 @@ const REAR_DRAIN = (() => {
   // low front fence with gate opening at the driveway
   fm.box(MAT.galv, 3600, 13000, -8130, -8070, 0, 0.9); fm.box(MAT.galv, -1700, -500, -8130, -8070, 0, 0.9);
   fm.finish();
-  // a car in the carport space
-  mg.box(MAT.car, 400, 2200, -5300, -1100, 0.35, 0.95); mg.box(MAT.car, 600, 2000, -4300, -1900, 0.95, 1.45); mg.box(MAT.carGlass, 620, 1980, -4200, -2000, 0.98, 1.42);
-  for (const [cx, cy] of [[650, -4700], [1950, -4700], [650, -1700], [1950, -1700]]) mg.cyl(MAT.tyre, W(cx, cy - 110, 0.32), W(cx, cy + 110, 0.32), 0.32, 16);
   mg.finish();
 }
 /* =========================================================================
@@ -1615,6 +1614,107 @@ function updateSharks(dt, t) {
     k.g.position.set(k.x, FLOOD_Y + waveH(k.x, k.y, t) - 0.43, -k.y);
   }
 }
+/* ---- the ute: single-cab tray-back, low-poly (about 200 faces). Local +x is the front, +y up, +z the driver's (right) side;
+        y = 0 is the ground. Clear glass all round, a dash, seats and wheel inside, and a driver with a white beard and glasses.
+        A pine cone air freshener swings from the rear-vision mirror. Parked in the carport, nose to the street. ---- */
+const CAR = { on: false, fpv: true, look: { yaw: 0, pitch: 0, held: false }, g: new THREE.Group(), x: 1.3, y: -3.6, h: -Math.PI / 2, v: 0, gy: 0.04, sa: 0, spin: 0, thr: 0, steer: 0,
+  eye: new THREE.Vector3(0.1, 1.57, 0.38), head: [], wheels: [], cone: null, saved: null };
+{
+  const mat = (col, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color: col, roughness: 0.6, flatShading: true, side: THREE.DoubleSide }, o));
+  const M = { paint: mat(0xf5f6f7, { roughness: 0.3 }), dark: mat(0x1c1f22), tyre: mat(0x151515, { roughness: 0.9 }), alloy: mat(0xc7ccd1, { roughness: 0.35, metalness: 0.4 }),
+    glass: mat(0xa9d0ea, { transparent: true, opacity: 0.25, roughness: 0.05, depthWrite: false }), lamp: mat(0xfff6d0, { emissive: 0x554d2a }), tail: mat(0xb01818), seat: mat(0x3a3f46),
+    skin: mat(0xd9a77a), shirt: mat(0x2e5a88), beard: mat(0xf7f7f7), lens: mat(0x101418, { transparent: true, opacity: 0.55 }), cone: mat(0x6b4423, { roughness: 0.9 }) };
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const add = (geo, m, x = 0, y = 0, z = 0, parent = CAR.g) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = !m.transparent; o.receiveShadow = true; parent.add(o); return o; };
+  const poly = (m, pts, parent = CAR.g) => { // one flat face from its corner points (fan)
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pts.flatMap(q => [q.x, q.y, q.z]), 3));
+    const idx = []; for (let i = 1; i < pts.length - 1; i++) idx.push(0, i, i + 1); g.setIndex(idx); g.computeVertexNormals(); return add(g, m, 0, 0, 0, parent);
+  };
+  const bar = (m, a, b, r) => { const o = add(new THREE.CylinderGeometry(r, r, a.distanceTo(b), 4, 1, true), m); o.position.copy(a).add(b).multiplyScalar(0.5); o.quaternion.setFromUnitVectors(UY, b.clone().sub(a).normalize()); return o; };   // four-sided, no ends
+  // body to the belt line: one extruded side profile (bumper, raked nose, bonnet, doors, cab back)
+  const prof = new THREE.Shape([[-0.35, 0.45], [2.45, 0.45], [2.5, 0.78], [2.42, 1.0], [1.25, 1.12], [-0.35, 1.12]].map(q => new THREE.Vector2(q[0], q[1])));
+  add(new THREE.ExtrudeGeometry(prof, { depth: 1.76, bevelEnabled: false }).translate(0, 0, -0.88), M.paint);
+  for (const sd of [1, -1]) { // each side: front wheel arch, door glass, pillars, mirror
+    poly(M.dark, [[1.05, 0.45], [1.15, 0.74], [1.38, 0.9], [1.72, 0.9], [1.95, 0.74], [2.05, 0.45]].map(q => V(q[0], q[1], sd * 0.884)));
+    poly(M.glass, [V(1.25, 1.12, sd * 0.82), V(0.75, 1.72, sd * 0.78), V(-0.32, 1.72, sd * 0.78), V(-0.32, 1.12, sd * 0.82)]);
+    bar(M.paint, V(1.25, 1.12, sd * 0.82), V(0.75, 1.72, sd * 0.78), 0.04); bar(M.paint, V(-0.32, 1.12, sd * 0.82), V(-0.32, 1.72, sd * 0.78), 0.045);
+    poly(M.dark, [V(1.12, 1.14, sd * 0.9), V(1.12, 1.28, sd * 0.9), V(1.12, 1.28, sd * 1.08), V(1.12, 1.14, sd * 1.08)]);
+    poly(M.lamp, [V(2.496, 0.84, sd * 0.52), V(2.496, 0.84, sd * 0.84), V(2.44, 0.985, sd * 0.84), V(2.44, 0.985, sd * 0.52)]);         // headlight
+    poly(M.tail, [V(-2.806, 0.88, sd * 0.66), V(-2.806, 0.88, sd * 0.9), V(-2.806, 1.08, sd * 0.9), V(-2.806, 1.08, sd * 0.66)]);      // tail light
+    poly(M.alloy, [V(-2.8, 0.86, sd * 0.93), V(-0.4, 0.86, sd * 0.93), V(-0.4, 1.12, sd * 0.93), V(-2.8, 1.12, sd * 0.93)]);             // tray drop-side
+    bar(M.alloy, V(-0.42, 0.86, sd * 0.86), V(-0.42, 1.72, sd * 0.86), 0.03);                                                             // headboard upright
+  }
+  add(new THREE.BoxGeometry(1.07, 0.06, 1.62), M.paint, 0.215, 1.75, 0);                                                                  // roof
+  poly(M.glass, [V(1.25, 1.12, -0.82), V(1.25, 1.12, 0.82), V(0.75, 1.72, 0.78), V(0.75, 1.72, -0.78)]);                                  // windscreen
+  poly(M.glass, [V(-0.33, 1.12, -0.82), V(-0.33, 1.12, 0.82), V(-0.33, 1.72, 0.78), V(-0.33, 1.72, -0.78)]);                              // rear window
+  poly(M.dark, [V(2.499, 0.8, -0.48), V(2.499, 0.8, 0.48), V(2.445, 0.98, 0.48), V(2.445, 0.98, -0.48)]);                                 // grille
+  poly(M.dark, [V(2.462, 0.5, -0.7), V(2.462, 0.5, 0.7), V(2.492, 0.7, 0.7), V(2.492, 0.7, -0.7)]);                                       // lower intake
+  // tray: chassis, deck, tailboard, headboard top rail
+  add(new THREE.BoxGeometry(2.5, 0.16, 0.9), M.dark, -1.55, 0.53, 0); add(new THREE.BoxGeometry(2.4, 0.08, 1.86), M.alloy, -1.6, 0.82, 0);
+  poly(M.alloy, [V(-2.8, 0.86, -0.93), V(-2.8, 0.86, 0.93), V(-2.8, 1.12, 0.93), V(-2.8, 1.12, -0.93)]);
+  bar(M.alloy, V(-0.42, 1.72, -0.86), V(-0.42, 1.72, 0.86), 0.03);
+  // wheels: eight-sided, each on a pivot so the fronts can steer; a hub disc on the outer face
+  for (const [x, z] of [[1.55, 0.8], [1.55, -0.8], [-1.55, 0.8], [-1.55, -0.8]]) {
+    const piv = new THREE.Group(); piv.position.set(x, 0.37, z); CAR.g.add(piv);
+    const w = add(new THREE.CylinderGeometry(0.37, 0.37, 0.26, 8), M.tyre, 0, 0, 0, piv); w.rotation.x = Math.PI / 2;
+    const hub = add(new THREE.CircleGeometry(0.21, 8), M.alloy, 0, Math.sign(z) * 0.133, 0, w); hub.rotation.x = -Math.sign(z) * Math.PI / 2;
+    CAR.wheels.push({ piv, w, front: x > 0 });
+  }
+  // inside: dash, two seat backs, steering wheel, rear-vision mirror
+  add(new THREE.BoxGeometry(0.3, 0.1, 1.6), M.dark, 1.05, 1.17, 0);
+  for (const z of [0.38, -0.38]) add(new THREE.BoxGeometry(0.12, 0.5, 0.56), M.seat, -0.2, 1.37, z);
+  const wheel = add(new THREE.CylinderGeometry(0.17, 0.17, 0.025, 8), M.dark, 0.66, 1.3, 0.38); wheel.rotation.z = -1.15;
+  add(new THREE.BoxGeometry(0.03, 0.07, 0.24), M.dark, 0.86, 1.66, 0);
+  // the driver: white beard and hair, glasses, both hands on the wheel
+  add(new THREE.BoxGeometry(0.24, 0.4, 0.44), M.shirt, -0.02, 1.32, 0.38);
+  for (const z of [0.2, -0.2]) bar(M.shirt, V(0.05, 1.45, 0.38 + z), V(0.62, 1.3, 0.38 + z * 0.7), 0.045);
+  CAR.head = [add(new THREE.BoxGeometry(0.2, 0.22, 0.19), M.skin, 0, 1.57, 0.38), add(new THREE.BoxGeometry(0.21, 0.04, 0.2), M.beard, -0.01, 1.695, 0.38), add(new THREE.BoxGeometry(0.09, 0.16, 0.2), M.beard, 0.075, 1.485, 0.38)];
+  for (const z of [0.3, 0.39]) CAR.head.push(poly(M.lens, [V(0.104, 1.58, z), V(0.104, 1.58, z + 0.07), V(0.104, 1.635, z + 0.07), V(0.104, 1.635, z)]));     // lenses
+  CAR.head.push(poly(M.dark, [V(0.105, 1.612, 0.37), V(0.105, 1.612, 0.39), V(0.105, 1.624, 0.39), V(0.105, 1.624, 0.37)]));                                 // bridge
+  // pine cone air freshener on a string from the mirror: swings as the ute accelerates and turns
+  CAR.cone = new THREE.Group(); CAR.cone.position.set(0.86, 1.625, 0); CAR.g.add(CAR.cone);
+  poly(M.dark, [V(-0.002, 0, 0), V(0.002, 0, 0), V(0.002, -0.1, 0), V(-0.002, -0.1, 0)], CAR.cone);
+  add(new THREE.OctahedronGeometry(0.036), M.cone, 0, -0.15, 0, CAR.cone).scale.set(1, 1.55, 1);
+  CAR.g.rotation.order = 'YZX'; G.car.add(CAR.g);
+}
+function updateCar(dt, t) {
+  const C = CAR, k = WALK.keys, ease = r => 1 - Math.exp(-dt * r);
+  if (C.on) { // same handling as the boat: throttle, drag, speed-dependent steering, stop at obstacles
+    C.thr = (k.KeyW || k.ArrowUp ? 1 : 0) - (k.KeyS || k.ArrowDown ? 1 : 0); C.steer = (k.KeyA || k.ArrowLeft ? 1 : 0) - (k.KeyD || k.ArrowRight ? 1 : 0);
+    C.v = THREE.MathUtils.clamp((C.v + C.thr * 5 * dt) * (1 - 0.5 * dt), -4, 13);
+    C.h += C.steer * 1.5 * dt * THREE.MathUtils.clamp(C.v / 4, -1, 1);
+    const fx = Math.cos(C.h), fy = Math.sin(C.h), step = C.v * dt, sg = Math.sign(C.v) || 1, nx = C.x + fx * step, ny = C.y + fy * step;
+    ray.set(new THREE.Vector3(C.x, C.gy + 0.7, -C.y), new THREE.Vector3(fx * sg, 0, -fy * sg)); ray.near = 0; ray.far = Math.abs(step) + (sg > 0 ? 2.65 : 2.95);
+    if (ray.intersectObjects(collidables(), false).length || Math.abs(nx - 5.8) > 75 || Math.abs(ny - 10) > 75) C.v *= -0.2; else { C.x = nx; C.y = ny; }
+    const g = groundHeight(collidables(), C.x, -C.y, C.gy + 1.0); C.gy += ((g < -5 ? 0 : g) - C.gy) * ease(10);   // ride the ground: driveway, kerb, road, the graded back yard
+  } else { C.thr = C.steer = 0; }
+  C.g.position.set(C.x, C.gy, -C.y); C.g.rotation.y = C.h;
+  C.spin += C.v * dt / 0.37; C.sa += (C.steer * 0.5 - C.sa) * ease(8);
+  for (const w of C.wheels) { w.w.rotation.y = -C.spin; if (w.front) w.piv.rotation.y = C.sa; }
+  C.cone.rotation.z += ((C.thr * 0.35 + Math.sin(t * 3.1) * 0.02 * Math.min(1, Math.abs(C.v) / 3)) - C.cone.rotation.z) * ease(3);
+  C.cone.rotation.x += ((-C.steer * 0.3 * Math.min(1, Math.abs(C.v) / 4)) - C.cone.rotation.x) * ease(3);
+  if (C.on) { // camera: the driver's eyes by default, or a chase view; drag to look, eases back when released
+    const L = C.look; if (!L.held) { const d = Math.exp(-dt * 0.8); L.yaw *= d; L.pitch *= d; }
+    for (const m of C.head) m.visible = !C.fpv;
+    if (C.fpv) { C.g.updateMatrixWorld(true); camera.position.copy(C.g.localToWorld(C.eye.clone())); camera.rotation.set(L.pitch, C.h - Math.PI / 2 + L.yaw, 0, 'YXZ'); }
+    else {
+      const a = C.h + L.yaw, cx = Math.cos(a), cy = Math.sin(a);
+      camera.position.lerp(new THREE.Vector3(C.x - cx * 8.5, C.gy + 3.4 - L.pitch * 4, -(C.y - cy * 8.5)), ease(4));
+      camera.lookAt(C.x + cx * 2, C.gy + 1.2, -(C.y + cy * 2));
+    }
+  }
+}
+function enterCar() {
+  if (CAR.on) return; if (WALK.on) exitWalk(); if (BOAT.on) exitBoat();
+  showLayer('car', true); CAR.look.yaw = CAR.look.pitch = 0; CAR.look.held = false;
+  CAR.on = true; boatView(CAR.fpv); CAR.saved = { p: camera.position.clone(), t: controls.target.clone() }; controls.enabled = false; camTarget = null; WALK.keys = {};
+  document.getElementById('boatHint').style.display = 'block'; document.getElementById('carBtn').textContent = 'Get out of the ute (C)';
+}
+function exitCar() {
+  if (!CAR.on) return; CAR.on = false; CAR.v = 0; for (const m of CAR.head) m.visible = true;
+  camera.rotation.set(0, 0, 0, 'XYZ'); camera.position.copy(CAR.saved.p); controls.target.copy(CAR.saved.t); camera.lookAt(controls.target); controls.enabled = true;
+  document.getElementById('boatHint').style.display = 'none'; document.getElementById('carBtn').textContent = 'Drive the ute (C)';
+}
 function updateFlood(dt, t) { FLOOD.uTime.value = t; if (G.boat.visible) updateBoat(dt, t); if (G.sharks.visible) updateSharks(dt, t); }
 function showLayer(k, v) { G[k].visible = v; const cb = document.querySelector(`#layers input[data-k="${k}"]`); if (cb) cb.checked = v; }
 function setFloodFun(on) { // off: flat plane at RL 4.10, no boat, no sharks
@@ -1625,19 +1725,21 @@ function setFloodFun(on) { // off: flat plane at RL 4.10, no boat, no sharks
   document.getElementById('floodFun').textContent = `Flood waves, boat & sharks: ${on ? 'on' : 'off'}`;
 }
 function enterBoat() {
-  if (BOAT.on) return; if (WALK.on) exitWalk();
+  if (BOAT.on) return; if (WALK.on) exitWalk(); if (CAR.on) exitCar();
   if (!FLOOD.fun) setFloodFun(true);
   showLayer('flood', true); showLayer('boat', true);
   BOAT.look.yaw = BOAT.look.pitch = 0; BOAT.look.held = false;
+  boatView(BOAT.fpv);
   BOAT.on = true; BOAT.saved = { p: camera.position.clone(), t: controls.target.clone() }; controls.enabled = false; camTarget = null; WALK.keys = {};
   document.getElementById('boatHint').style.display = 'block'; document.getElementById('boatBtn').textContent = 'Leave the boat (B)';
 }
-function boatView(fpv) { BOAT.fpv = fpv; BOAT.look.yaw = BOAT.look.pitch = 0; document.getElementById('boatView').textContent = fpv ? 'third-person view (V)' : 'first-person view (V)'; }
+const driven = () => CAR.on ? CAR : BOAT.on ? BOAT : null;
+function boatView(fpv) { const d = driven() || BOAT; d.fpv = fpv; d.look.yaw = d.look.pitch = 0; document.getElementById('boatView').textContent = fpv ? 'third-person view (V)' : 'first-person view (V)'; }
 // look around from the boat: drag with the mouse; let go and the view swings back to dead ahead
-canvas.addEventListener('pointerdown', e => { if (BOAT.on) { BOAT.look.held = true; BOAT.look.px = e.clientX; BOAT.look.py = e.clientY; } });
-window.addEventListener('pointerup', () => { BOAT.look.held = false; });
+canvas.addEventListener('pointerdown', e => { const d = driven(); if (d) { d.look.held = true; d.look.px = e.clientX; d.look.py = e.clientY; } });
+window.addEventListener('pointerup', () => { BOAT.look.held = false; CAR.look.held = false; });
 window.addEventListener('pointermove', e => {
-  const L = BOAT.look; if (!BOAT.on || !L.held) return;
+  const d = driven(); if (!d || !d.look.held) return; const L = d.look;
   L.yaw = THREE.MathUtils.clamp(L.yaw - (e.clientX - L.px) * 0.005, -2.7, 2.7); L.pitch = THREE.MathUtils.clamp(L.pitch - (e.clientY - L.py) * 0.004, -0.9, 0.7);
   L.px = e.clientX; L.py = e.clientY;
 });
@@ -1662,12 +1764,12 @@ function setLayers(on) { for (const [k] of LAYERS) { const v = on.includes(k) &&
 const ALL = LAYERS.map(l => l[0]).filter(k => !['flood', 'boat', 'sharks'].includes(k));
 const PRESETS = {
   'Everything': ALL,
-  'Exterior': ['site', 'fences', 'sheds', 'floor', 'extWalls', 'glazing', 'roofMain', 'roofAdd', 'awnings', 'carport', 'balcony', 'screens', 'subfloor', 'footings', 'slats', 'labels'],
-  'No roof': ['site', 'fences', 'sheds', 'floor', 'extWalls', 'intWalls', 'glazing', 'awnings', 'carport', 'balcony', 'screens', 'subfloor', 'footings', 'slats', 'labels'],
+  'Exterior': ['site', 'fences', 'car', 'sheds', 'floor', 'extWalls', 'glazing', 'roofMain', 'roofAdd', 'awnings', 'carport', 'balcony', 'screens', 'subfloor', 'footings', 'slats', 'labels'],
+  'No roof': ['site', 'fences', 'car', 'sheds', 'floor', 'extWalls', 'intWalls', 'glazing', 'awnings', 'carport', 'balcony', 'screens', 'subfloor', 'footings', 'slats', 'labels'],
   'Interior plan': ['floor', 'extWalls', 'intWalls', 'glazing', 'balcony', 'labels'],
   'Structure': ['floor', 'subfloor', 'footings', 'balcony', 'carport', 'awnings', 'labels'],
-  'Stormwater': ['site', 'fences', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'awnings', 'carport', 'stormwater', 'dimensions', 'labels'],
-  'Flood check': ['site', 'fences', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'balcony', 'carport', 'subfloor', 'flood', 'boat', 'sharks', 'labels'],
+  'Stormwater': ['site', 'fences', 'car', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'awnings', 'carport', 'stormwater', 'dimensions', 'labels'],
+  'Flood check': ['site', 'fences', 'car', 'floor', 'extWalls', 'roofMain', 'roofAdd', 'balcony', 'carport', 'subfloor', 'flood', 'boat', 'sharks', 'labels'],
 };
 const presetsEl = document.getElementById('presets');
 for (const [name, keys] of Object.entries(PRESETS)) { const b = document.createElement('button'); b.textContent = name; b.onclick = () => setLayers(keys); presetsEl.appendChild(b); }
@@ -1750,6 +1852,7 @@ function collidables() {
 function enterWalk() {
   if (WALK.on) return;
   if (BOAT.on) exitBoat();
+  if (CAR.on) exitCar();
   WALK.on = true; WALK.saved = { p: camera.position.clone(), t: controls.target.clone() };
   controls.enabled = false; camTarget = null;
   const s = SPAWNS[spawnEl.value] || SPAWNS.entry;
@@ -1775,7 +1878,8 @@ function exitWalk() {
 walkBtn.addEventListener('click', () => WALK.on ? exitWalk() : enterWalk());
 document.getElementById('boatBtn').addEventListener('click', () => BOAT.on ? exitBoat() : enterBoat());
 document.getElementById('floodFun').addEventListener('click', () => setFloodFun(!FLOOD.fun));
-document.getElementById('boatView').addEventListener('click', () => boatView(!BOAT.fpv));
+document.getElementById('boatView').addEventListener('click', () => boatView(!(driven() || BOAT).fpv));
+document.getElementById('carBtn').addEventListener('click', () => CAR.on ? exitCar() : enterCar());
 document.getElementById('toggleUI').addEventListener('click', () => document.body.classList.toggle('menuHidden'));
 canvas.addEventListener('click', () => { if (WALK.on && document.pointerLockElement !== canvas) lockPointer(); });
 document.addEventListener('mousemove', e => {
@@ -1791,8 +1895,9 @@ window.addEventListener('keydown', e => {
   if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName)) return;
   if (e.code === 'KeyF') { WALK.on ? exitWalk() : enterWalk(); return; }
   if (e.code === 'KeyB') { BOAT.on ? exitBoat() : enterBoat(); return; }
-  if (e.code === 'Escape' && BOAT.on) { exitBoat(); return; }
-  if (e.code === 'KeyV' && BOAT.on) { boatView(!BOAT.fpv); return; }
+  if (e.code === 'KeyC') { CAR.on ? exitCar() : enterCar(); return; }
+  if (e.code === 'Escape' && driven()) { BOAT.on ? exitBoat() : exitCar(); return; }
+  if (e.code === 'KeyV' && driven()) { boatView(!driven().fpv); return; }
   if (e.code === 'KeyM') { document.body.classList.toggle('menuHidden'); return; }
   WALK.keys[e.code] = true;
   if (WALK.on && ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) e.preventDefault();
@@ -1871,10 +1976,11 @@ function animate() {
   updateDoors(dt, WALK.on ? WALK.pos : null);
   updateFlood(dt, now / 1000);
   // depth precision: push the near plane out as the camera pulls back (a fixed 0.1 m near plane makes distant surfaces shimmer)
-  const near = WALK.on || BOAT.on ? 0.1 : THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.012, 0.1, 1.5);
+  const near = WALK.on || BOAT.on || CAR.on ? 0.1 : THREE.MathUtils.clamp(camera.position.distanceTo(controls.target) * 0.012, 0.1, 1.5);
   if (Math.abs(near - camera.near) > camera.near * 0.05) { camera.near = near; camera.updateProjectionMatrix(); }
   if (WALK.on) { walkUpdate(dt); camera.getWorldDirection(camDir); needle.style.transform = `rotate(${-Math.atan2(camDir.x, -camDir.z)}rad) translateY(-20px)`; renderer.render(scene, camera); return; }
-  if (BOAT.on) { camera.getWorldDirection(camDir); needle.style.transform = `rotate(${-Math.atan2(camDir.x, -camDir.z)}rad) translateY(-20px)`; renderer.render(scene, camera); return; }
+  updateCar(dt, now / 1000);
+  if (BOAT.on || CAR.on) { camera.getWorldDirection(camDir); needle.style.transform = `rotate(${-Math.atan2(camDir.x, -camDir.z)}rad) translateY(-20px)`; renderer.render(scene, camera); return; }
   if (camTarget) {
     const t = Math.min(1, (performance.now() - camTarget.start) / camTarget.dur), s = t * t * (3 - 2 * t);
     camera.position.lerpVectors(camTarget.p0, camTarget.p1, s); controls.target.lerpVectors(camTarget.t0, camTarget.t1, s);
